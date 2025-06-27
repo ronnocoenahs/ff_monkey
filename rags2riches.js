@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      1.0 // Increased version for button placement and styling
+// @version      1.1 // Increased version for title removal and enhanced stats display
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -39,10 +39,12 @@
     let actualUsersUsername = ''; // To store the current logged-in user's username
     let wins = 0; // Track wins
     let losses = 0; // Track losses
+    let totalEarned = 0; // Track total credits earned in game
+    let totalLost = 0;   // Track total credits lost in game
 
     // --- UI Elements (will be populated once the DOM is ready) ---
     let gameModal, dealerHandDiv, dealerScoreDiv, playerHandDiv, playerScoreDiv, gameMessageDiv, hitBtn, standBtn, newGameBtn;
-    let currentCreditsDisplay, betInput, placeBetBtn, winsLossesDisplay, transferCreditsBtn;
+    let currentCreditsDisplay, betInput, placeBetBtn, winsDisplayElement, lossesDisplayElement, totalEarnedDisplay, totalLostDisplay, transferCreditsBtn;
 
     // --- Card Deck Logic ---
     const suits = ['♥', '♦', '♣', '♠']; // Heart, Diamond, Club, Spade emojis
@@ -219,27 +221,50 @@
             transform: scale(1);
         }
 
-        /* Titles and Text */
-        .blackjack-modal-content h2 {
-            margin-top: 0;
-            color: #f39c12; /* Orange title */
-            font-size: 2.2em;
-            margin-bottom: 25px;
-            text-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+        /* Stats Header Styling */
+        .blackjack-stats-header { /* New class for the top stat display */
+            font-size: 1.3em; /* Larger font for header */
+            font-weight: bold;
+            color: #f39c12; /* Orange for main stats */
+            margin-bottom: 20px; /* Space below header */
+            padding-bottom: 10px; /* Padding for visual separation */
+            border-bottom: 1px solid rgba(255,255,255,0.2); /* Subtle separator */
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
         }
+        .blackjack-stats-header span {
+            color: #ecf0f1; /* White for labels */
+            margin-left: 5px;
+            margin-right: 15px;
+            font-weight: normal; /* Labels not as bold as values */
+        }
+        .blackjack-stats-header .value { /* Class for the actual numerical values */
+            color: #2ecc71; /* Green for positive, etc. */
+            font-weight: bold;
+        }
+        .blackjack-stats-header .value.loss {
+            color: #e74c3c; /* Red for losses */
+        }
+        .blackjack-stats-header .value.earned {
+            color: #2ecc71;
+        }
+        .blackjack-stats-header .value.lost {
+            color: #e74c3c;
+        }
+
+
         .blackjack-modal-content h3 {
             margin-top: 15px; /* Adjust margin for headers */
             margin-bottom: 10px;
             color: #f1c40f; /* Sunflower yellow for hand titles */
         }
-        .blackjack-info {
+        .blackjack-info { /* Original userInfoDiv is now just for credits, keeping original style */
             font-size: 1.1em;
-            color: #bdc3c7; /* Light grey for info text */
+            color: #bdc3c7;
             margin-bottom: 15px;
         }
         .blackjack-info span {
             font-weight: bold;
-            color: #f39c12; /* Orange for values */
+            color: #f39c12;
         }
 
         /* Betting Area */
@@ -447,18 +472,22 @@
         const modalContent = document.createElement('div');
         modalContent.className = 'blackjack-modal-content';
 
-        // Title
-        const title = document.createElement('h2');
-        title.textContent = 'Blackjack: Rags To Riches';
+        // Stats Header (replaces the old title)
+        const statsHeaderDiv = document.createElement('div');
+        statsHeaderDiv.className = 'blackjack-stats-header';
+        statsHeaderDiv.innerHTML = `
+            <span class="value" id="currentCreditsDisplay">0.00</span><span class="label"> cr.</span>
+            <span class="label">Wins:</span> <span class="value" id="winsDisplay">0</span>
+            <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span>
+            <span class="label">Earned:</span> <span class="value earned" id="totalEarnedDisplay">0.00</span>
+            <span class="label">Lost:</span> <span class="value lost" id="totalLostDisplay">0.00</span>
+        `;
+        currentCreditsDisplay = statsHeaderDiv.querySelector('#currentCreditsDisplay');
+        winsDisplayElement = statsHeaderDiv.querySelector('#winsDisplay');
+        lossesDisplayElement = statsHeaderDiv.querySelector('#lossesDisplay');
+        totalEarnedDisplay = statsHeaderDiv.querySelector('#totalEarnedDisplay');
+        totalLostDisplay = statsHeaderDiv.querySelector('#totalLostDisplay');
 
-        // User Info (Credits and Win/Loss display)
-        const userInfoDiv = document.createElement('div');
-        userInfoDiv.className = 'blackjack-info';
-        // Updated innerHTML to include proper IDs for lossesDisplay
-        userInfoDiv.innerHTML = `Your Credits: <span id="currentCreditsDisplay">0.00</span> cr. | Wins: <span id="winsDisplay">0</span> | Losses: <span id="lossesDisplay">0</span>`;
-        currentCreditsDisplay = userInfoDiv.querySelector('#currentCreditsDisplay');
-        winsLossesDisplay = userInfoDiv.querySelector('#winsDisplay'); // Corrected ID to 'winsDisplay'
-        const lossesDisplay = userInfoDiv.querySelector('#lossesDisplay'); // Now correctly targets the losses span
 
         // Betting Area
         const bettingArea = document.createElement('div');
@@ -553,8 +582,7 @@
 
 
         // Append all elements to modal content
-        modalContent.appendChild(title);
-        modalContent.appendChild(userInfoDiv); // Credits and Win/Loss display
+        modalContent.appendChild(statsHeaderDiv); // New stats header at the top
         modalContent.appendChild(bettingArea); // Betting input and button
         modalContent.appendChild(dealerArea);
         modalContent.appendChild(playerArea);
@@ -578,19 +606,17 @@
 
         // Initial UI state
         setGameControlState(false); // Game controls disabled until bet is placed
-        updateStatsDisplay(); // Update initial win/loss display
+        updateStatsDisplay(); // Update initial win/loss/earned/lost display
     }
 
     // --- Game Flow Functions ---
 
-    // Updates the win/loss display
+    // Updates the win/loss/total earned/lost display
     function updateStatsDisplay() {
-        winsLossesDisplay.textContent = wins;
-        // Ensure you are targeting the correct element for losses
-        const lossesDisplayElement = document.querySelector('#lossesDisplay');
-        if (lossesDisplayElement) {
-            lossesDisplayElement.textContent = losses;
-        }
+        if (winsDisplayElement) winsDisplayElement.textContent = wins;
+        if (lossesDisplayElement) lossesDisplayElement.textContent = losses;
+        if (totalEarnedDisplay) totalEarnedDisplay.textContent = totalEarned.toFixed(2);
+        if (totalLostDisplay) totalLostDisplay.textContent = totalLost.toFixed(2);
     }
 
     // Sets the state of game control buttons (hit, stand)
@@ -599,13 +625,13 @@
         standBtn.disabled = !enabled;
     }
 
-    // Resets the game state and UI for a new hand (not resetting scores)
+    // Resets the game state and UI for a new hand (not resetting overall stats)
     function resetGame() {
         createDeck();
         playerHand = [];
         dealerHand = [];
         gameOver = false;
-        currentBet = 0; // Reset bet
+        currentBet = 0; // Reset bet for the new hand
 
         currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2); // Refresh displayed credits
         betInput.value = '10'; // Reset default bet
@@ -753,24 +779,28 @@
             gameMessageDiv.classList.add('lose');
             creditChange = -currentBet;
             losses++; // Increment loss count
+            totalLost += currentBet; // Add to total lost
         } else if (dealerScore > 21) {
             gameMessageDiv.textContent = `Dealer busts! You win! Payout: ${(currentBet * REGULAR_WIN_MULTIPLIER).toFixed(2)} credits.`;
             gameMessageDiv.classList.remove('playing');
             gameMessageDiv.classList.add('win');
             creditChange = currentBet * REGULAR_WIN_MULTIPLIER;
             wins++; // Increment win count
+            totalEarned += creditChange; // Add to total earned
         } else if (playerScore > dealerScore) {
             gameMessageDiv.textContent = `You win! Payout: ${(currentBet * REGULAR_WIN_MULTIPLIER).toFixed(2)} credits.`;
             gameMessageDiv.classList.remove('playing');
             gameMessageDiv.classList.add('win');
             creditChange = currentBet * REGULAR_WIN_MULTIPLIER;
             wins++; // Increment win count
+            totalEarned += creditChange; // Add to total earned
         } else if (dealerScore > playerScore) {
             gameMessageDiv.textContent = `Dealer wins! You lose. Your bet of ${currentBet.toFixed(2)} credits will be sent to ${DEALER_NAME}.`;
             gameMessageDiv.classList.remove('playing');
             gameMessageDiv.classList.add('lose');
             creditChange = -currentBet;
             losses++; // Increment loss count
+            totalLost += currentBet; // Add to total lost
         } else {
             gameMessageDiv.textContent = `Push! It's a tie. Your bet of ${currentBet.toFixed(2)} credits is returned.`;
             gameMessageDiv.classList.remove('playing');
@@ -789,7 +819,7 @@
         // Update displayed credits (add win or subtract loss from previous deduction)
         currentUsersCredits += creditChange;
         currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
-        updateStatsDisplay(); // Update win/loss display
+        updateStatsDisplay(); // Update win/loss and total earned/lost display
 
         // Prepare for manual credit transfer via mycredits.php
         if (creditChange !== 0) {
