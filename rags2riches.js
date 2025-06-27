@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.8 // Increased version for button repositioning/styling and refined scrolling
+// @version      2.9 // Increased version for "Report Totals" message functionality
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -35,6 +35,11 @@
     const STORAGE_KEY_LOSSES = 'ff_blackjack_losses';
     const STORAGE_KEY_TOTAL_EARNED = 'ff_blackjack_total_earned';
     const STORAGE_KEY_TOTAL_LOST = 'ff_blackjack_total_lost';
+    // New storage keys for messaging Mugiwara
+    const STORAGE_KEY_MESSAGE_PENDING = 'ff_blackjack_message_pending';
+    const STORAGE_KEY_MESSAGE_RECIPIENT = 'ff_blackjack_message_recipient';
+    const STORAGE_KEY_MESSAGE_SUBJECT = 'ff_blackjack_message_subject';
+    const STORAGE_KEY_MESSAGE_BODY = 'ff_blackjack_message_body';
 
 
     // --- Blackjack Game Variables ---
@@ -53,7 +58,7 @@
 
     // --- UI Elements (will be populated once the DOM is ready) ---
     let gameModal, dealerHandDiv, dealerScoreDiv, playerHandDiv, playerScoreDiv, gameMessageDiv, hitBtn, standBtn, newGameBtn;
-    let currentCreditsDisplay, winsDisplayElement, lossesDisplayElement, totalEarnedDisplay, totalLostDisplay, transferCreditsBtn;
+    let currentCreditsDisplay, winsDisplayElement, lossesDisplayElement, totalEarnedDisplay, totalLostDisplay, transferCreditsBtn, reportTotalsBtn; // Added reportTotalsBtn
     let closeButtonX; // The new 'X' close button
     let rags2RichesTitle; // For the text in the middle of the table
     let betInput, placeBetBtn, bettingAreaDiv; // New UI elements for betting
@@ -626,7 +631,7 @@
         #blackjackNewGameBtn { background-color: #3498db; background-image: linear-gradient(to bottom right, #3498db, #2980b9); }
         #blackjackNewGameBtn:hover { background-color: #2980b9; background-image: linear-gradient(to bottom right, #2980b9, #206da0); }
 
-        /* Bottom Controls (Transfer) */
+        /* Bottom Controls (Transfer and Report) */
         .bottom-controls {
             grid-area: bottom-controls;
             display: flex;
@@ -662,6 +667,9 @@
 
         #transferCreditsBtn { background-color: #f39c12; background-image: linear-gradient(to bottom right, #f39c12, #e67e22); }
         #transferCreditsBtn:hover { background-color: #e67e22; background-image: linear-gradient(to bottom right, #e67e22, #d35400); }
+
+        #reportTotalsBtn { background-color: #8e44ad; background-image: linear-gradient(to bottom right, #8e44ad, #9b59b6); } /* Purple color for new button */
+        #reportTotalsBtn:hover { background-color: #9b59b6; background-image: linear-gradient(to bottom right, #9b59b6, #a977c0); }
     `);
 
     // Function to create the Blackjack game modal and its elements
@@ -804,15 +812,20 @@
         controlsDiv.appendChild(standBtn);
         controlsDiv.appendChild(newGameBtn);
 
-        // Additional Control Buttons (Transfer Credits)
+        // Additional Control Buttons (Transfer Credits, Report Totals)
         const bottomControlsDiv = document.createElement('div');
         bottomControlsDiv.className = 'bottom-controls';
 
         transferCreditsBtn = document.createElement('button');
         transferCreditsBtn.id = 'transferCreditsBtn';
         transferCreditsBtn.textContent = 'Transfer Credits';
+        bottomControlsDiv.appendChild(transferCreditsBtn); // Add Transfer Credits button
 
-        bottomControlsDiv.appendChild(transferCreditsBtn);
+        reportTotalsBtn = document.createElement('button'); // New button
+        reportTotalsBtn.id = 'reportTotalsBtn';
+        reportTotalsBtn.textContent = 'Report Totals to Mugiwara';
+        bottomControlsDiv.appendChild(reportTotalsBtn); // Add Report Totals button
+
 
         // Rags 2 Riches Title in the middle of the table
         rags2RichesTitle = document.createElement('div');
@@ -845,6 +858,7 @@
         standBtn.addEventListener('click', playerStand);
         newGameBtn.addEventListener('click', resetGame);
         transferCreditsBtn.addEventListener('click', redirectToCreditTransfer);
+        reportTotalsBtn.addEventListener('click', sendPayoutReport); // Event listener for new button
 
         // Initial UI state
         setGameControlState(false); // Game controls disabled initially
@@ -1107,7 +1121,7 @@
             GM_setValue(STORAGE_KEY_AMOUNT, transferAmount);
             GM_setValue(STORAGE_KEY_REASON, transferReason);
 
-            // Update message to include transfer instructions without an alert
+            // Updated: Display transfer instruction in gameMessageDiv instead of alert
             gameMessageDiv.innerHTML += `<br>Credits need to be transferred. Click "Transfer Credits" to finalize on MyCredits page.`;
         }
     }
@@ -1148,15 +1162,34 @@
     function redirectToCreditTransfer() {
         const pendingCredit = GM_getValue(STORAGE_KEY_PENDING_CREDIT, false);
         if (pendingCredit) {
-            // IMPORTANT: Using confirm() as per previous interactions for a modal-like prompt.
-            // If you prefer a custom in-game message instead of a browser confirm, let me know.
+            // Confirm with user before redirecting
             if (confirm("You have a pending credit transfer. Click OK to go to the MyCredits page to finalize it, or Cancel to stay here.")) {
                  window.location.href = 'https://www.funfile.org/mycredits.php';
             }
         } else {
-            alert("No pending credit transfer. Play a hand to win or lose credits!");
+            // Using a custom message box for no pending transfer, consistent with in-game messages.
+            gameMessageDiv.textContent = "No pending credit transfer. Play a hand to win or lose credits!";
+            gameMessageDiv.classList.add('error');
+            // Consider if this should reset the game or just update the message
         }
     }
+
+    // New function: Sends a message to Mugiwara with totals
+    function sendPayoutReport() {
+        const messageRecipient = DEALER_NAME;
+        const messageSubject = `Blackjack Game Totals Report from ${actualUsersUsername}`;
+        const messageBody = `Hello ${DEALER_NAME},\n\nHere are my final Blackjack game totals:\n\nTotal Credits Earned: ${totalEarned.toFixed(2)} cr.\nTotal Credits Lost: ${totalLost.toFixed(2)} cr.\nWins: ${wins}\nLosses: ${losses}\n\nThanks,\n${actualUsersUsername}`;
+
+        // Store message details for pre-filling
+        GM_setValue(STORAGE_KEY_MESSAGE_PENDING, true);
+        GM_setValue(STORAGE_KEY_MESSAGE_RECIPIENT, messageRecipient);
+        GM_setValue(STORAGE_KEY_MESSAGE_SUBJECT, messageSubject);
+        GM_setValue(STORAGE_KEY_MESSAGE_BODY, messageBody);
+
+        // Redirect to the message compose page
+        window.location.href = `https://www.funfile.org/messages.php?action=compose&receiver=${encodeURIComponent(messageRecipient)}`;
+    }
+
 
     // --- Initialize "Rags To Riches" button ---
     function initializeRagsToRichesButton() {
@@ -1174,8 +1207,9 @@
         document.body.prepend(buttonContainer);
     }
 
-    // --- Handle Credit Pre-filling on mycredits.php ---
-    function handlePendingCreditTransfer() {
+    // --- Handle Page Load Actions (Credit Pre-filling and Message Pre-filling) ---
+    function handlePageLoadActions() {
+        // Handle pending credit transfer on mycredits.php
         if (window.location.href.includes('https://www.funfile.org/mycredits.php')) {
             const pendingCredit = GM_getValue(STORAGE_KEY_PENDING_CREDIT, false);
 
@@ -1186,15 +1220,13 @@
 
                 const commerceUserField = document.querySelector('input[name="commerce2user"]');
                 const user2userReasonField = document.querySelector('input[name="user2user_reason"]');
-                const user2userAmountField = document.querySelector('input[name="user2user"]');
+                const user2userAmountField = document.querySelector('input[name="user2user"]'); // Corrected variable name
 
                 if (commerceUserField && user2userReasonField && user2userAmountField) {
                     commerceUserField.value = recipient;
                     user2userReasonField.value = reason;
                     user2userAmountField.value = amount.toFixed(2); // Ensure consistent decimal format
 
-                    // IMPORTANT: Using alert() here to notify the user about pre-filling.
-                    // This is for out-of-game context on the mycredits.php page.
                     alert(`Blackjack Credit Transfer Ready!\n\nThe credit exchange form has been pre-filled for:\nRecipient: ${recipient}\nAmount: ${amount.toFixed(2)} cr.\nReason: "${reason}"\n\nPlease review the details and click the "Send Credits" button to complete the transaction.`);
 
                     // Clear the storage flags so it doesn't pre-fill again on refresh
@@ -1213,12 +1245,48 @@
                 }
             }
         }
+
+        // Handle pending message transfer on messages.php (compose)
+        if (window.location.href.includes('https://www.funfile.org/messages.php?action=compose')) {
+            const messagePending = GM_getValue(STORAGE_KEY_MESSAGE_PENDING, false);
+
+            if (messagePending) {
+                const recipient = GM_getValue(STORAGE_KEY_MESSAGE_RECIPIENT, '');
+                const subject = GM_getValue(STORAGE_KEY_MESSAGE_SUBJECT, '');
+                const body = GM_getValue(STORAGE_KEY_MESSAGE_BODY, '');
+
+                const recipientField = document.querySelector('input[name="to"]');
+                const subjectField = document.querySelector('input[name="subject"]');
+                const bodyField = document.querySelector('textarea[name="body"]');
+
+                if (recipientField && subjectField && bodyField) {
+                    recipientField.value = recipient;
+                    subjectField.value = subject;
+                    bodyField.value = body;
+
+                    alert(`Blackjack Game Report Ready!\n\nThe message form has been pre-filled for:\nRecipient: ${recipient}\nSubject: "${subject}"\n\nPlease review the details and click "Send Message" to send the report.`);
+
+                    // Clear the storage flags
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_PENDING);
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_RECIPIENT);
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_SUBJECT);
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_BODY);
+                } else {
+                    console.error('FunFile Blackjack: Could not find all message compose form fields on messages.php. Is the page structure correct?');
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_PENDING);
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_RECIPIENT);
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_SUBJECT);
+                    GM_deleteValue(STORAGE_KEY_MESSAGE_BODY);
+                    alert("Blackjack message pre-filling failed. Please check console for errors.");
+                }
+            }
+        }
     }
 
 
     // --- Run Initialization ---
-    // Handle pending credit transfer as soon as mycredits.php loads
-    handlePendingCreditTransfer();
+    // This function will now handle all page-specific actions based on URL
+    handlePageLoadActions();
     // Initialize the Rags2Riches button once the main page is loaded
     window.addEventListener('load', initializeRagsToRichesButton);
 
