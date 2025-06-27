@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.6 // Increased version for centered bet input under stats and overlapping cards
+// @version      2.7 // Increased version for fixing global scrolling issue
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -155,37 +155,7 @@
             height: 100%;
             margin: 0;
             padding: 0;
-            overflow: hidden; /* Prevent outer scrollbars */
-        }
-
-        /* Main Button Styling */
-        #ragsToRichesBtn {
-            background-color: #333; /* Dark background */
-            color: #ecf0f1; /* Light text color */
-            padding: 8px 30px; /* Slimmed down padding */
-            border: none;
-            border-radius: 8px; /* Slightly smaller border-radius */
-            font-size: 1.5em; /* Slightly smaller font for a slimmer look */
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); /* Adjusted shadow */
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin: 10px auto; /* Reduced margin, centered */
-            display: block;
-            background-image: linear-gradient(to bottom right, #444, #222); /* Subtle gradient */
-            border: 1px solid #555; /* Slightly lighter border */
-        }
-        #ragsToRichesBtn:hover {
-            background-color: #555; /* Lighter on hover */
-            transform: translateY(-1px); /* Less dramatic lift */
-            box-shadow: 0 5px 12px rgba(0, 0, 0, 0.5); /* Adjusted shadow on hover */
-            background-image: linear-gradient(to bottom right, #555, #333);
-        }
-        #ragsToRichesBtn:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            /* REMOVED: overflow: hidden; */ /* Allow scrolling on the main page */
         }
 
         /* Modal Backdrop */
@@ -219,7 +189,7 @@
             max-width: 900px; /* Wider to provide more space */
             width: 95%;
             height: 85vh; /* Fixed height to prevent scrolling */
-            overflow: hidden; /* Prevent internal scrolling */
+            overflow: hidden; /* Prevent internal scrolling within the modal */
             margin: 20px auto; /* Add margin for spacing from edges */
             transform: scale(0.9);
             transition: transform 0.4s ease;
@@ -1186,7 +1156,7 @@
                 if (commerceUserField && user2userReasonField && user2userAmountField) {
                     commerceUserField.value = recipient;
                     user2userReasonField.value = reason;
-                    user22userAmountField.value = amount.toFixed(2); // Ensure consistent decimal format
+                    user2userAmountField.value = amount.toFixed(2); // Ensure consistent decimal format
 
                     // IMPORTANT: Using alert() here to notify the user about pre-filling.
                     // This is for out-of-game context on the mycredits.php page.
