@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.4 // Increased version for in-game bet input field
+// @version      2.6 // Increased version for centered bet input under stats and overlapping cards
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -23,9 +23,7 @@
     // Actual transfers are done manually via mycredits.php.
     const BLACKJACK_PAYOUT_MULTIPLIER = 1.5; // Blackjack typically pays 3:2 (1.5x bet)
     const REGULAR_WIN_MULTIPLIER = 1;       // Regular win pays 1:1 (1x bet)
-    // BET_TIMEOUT_MS is no longer directly used for prompt timeout, but can be
-    // repurposed for an idle timer if desired. For now, it's illustrative.
-    const BET_TIMEOUT_MS = 10000;
+    const BET_TIMEOUT_MS = 10000; // Still here for illustration, not used for prompt.
 
     // --- Greasemonkey Storage Keys ---
     const STORAGE_KEY_PENDING_CREDIT = 'ff_blackjack_pending_credit';
@@ -51,7 +49,6 @@
     let losses = 0; // Track losses (now persistent)
     let totalEarned = 0; // Track total credits earned in game (now persistent)
     let totalLost = 0;   // Track total credits lost in game (now persistent)
-    // betTimeoutId is no longer used for prompts, but kept as a placeholder if future timer logic is added.
     let betTimeoutId = null;
 
     // --- UI Elements (will be populated once the DOM is ready) ---
@@ -241,19 +238,33 @@
             position: relative; /* CRITICAL for absolute positioning of children */
             display: grid; /* Use grid for main layout */
             grid-template-areas:
-                "stats stats close-btn"
+                "stats-header stats-header stats-header" /* stats spans all columns for centering */
+                ". betting-area ." /* Betting area now right under stats */
                 "dealer-avatar . player-avatar"
                 "dealer-name-score . player-name-score"
                 "dealer-hand game-message player-hand" /* Hands on sides, message in center, allowing vertical stretch for cards */
                 ". controls ."
-                ". betting-area ." /* Added grid area for betting controls */
                 ". bottom-controls .";
             grid-template-columns: 1fr 2fr 1fr; /* Flexible columns, center is wider */
-            grid-template-rows: auto 1fr auto 2fr auto auto auto; /* Adjusted rows for betting area */
+            grid-template-rows: auto /* stats-header */
+                                auto /* betting-area */
+                                auto /* dealer/player avatar */
+                                auto /* dealer/player name-score */
+                                2fr  /* hands and message (flexible height) */
+                                auto /* controls */
+                                auto; /* bottom-controls */
             gap: 5px 0; /* Reduced vertical gap */
             align-items: center; /* Vertically center content in rows by default */
             justify-content: center; /* Horizontally center grid items */
         }
+        /* Make close button independent of grid row */
+        .blackjack-modal-content #blackjackCloseBtnX {
+            grid-area: unset; /* Remove from grid flow */
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+
 
         .blackjack-modal-backdrop.show {
             opacity: 1;
@@ -266,7 +277,7 @@
 
         /* Stats Header Styling */
         .blackjack-stats-header {
-            grid-area: stats;
+            grid-area: stats-header; /* Updated grid area name */
             font-size: 1.3em;
             font-weight: bold;
             color: #f39c12;
@@ -303,7 +314,6 @@
 
         /* Close Button (X) */
         #blackjackCloseBtnX {
-            grid-area: close-btn;
             background: none;
             border: none;
             color: #ecf0f1;
@@ -485,12 +495,12 @@
         /* Card Display */
         .blackjack-hand {
             display: flex;
-            justify-content: center;
+            justify-content: center; /* Center cards horizontally */
             align-items: center;
-            flex-wrap: wrap;
-            margin-bottom: 0; /* Remove bottom margin to save vertical space */
+            /* flex-wrap: wrap; Removed to prevent wrapping and allow controlled overlap */
+            margin-bottom: 0;
             min-height: 80px;
-            padding: 5px 0; /* Small vertical padding */
+            padding: 5px 0;
         }
         /* Specific grid areas for hands */
         #dealerHandDiv { grid-area: dealer-hand; }
@@ -502,21 +512,35 @@
             border: 2px solid #555;
             border-radius: 12px;
             padding: 5px;
-            margin: 3px; /* Reduced margin */
+            margin-left: -30px; /* Negative margin to create overlap */
+            /* The first card in the hand should not have a negative margin on its left */
+            margin-top: 3px; /* Small top margin for vertical spacing */
+            margin-bottom: 3px; /* Small bottom margin for vertical spacing */
             font-weight: bold;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
-            width: 70px; /* Slightly smaller card size */
-            height: 100px; /* Slightly smaller card size */
+            width: 70px;
+            height: 100px;
             box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
             text-shadow: none;
-            position: relative;
+            position: relative; /* Essential for z-index and correct layering */
             overflow: hidden;
             font-family: 'Georgia', serif;
             background-image: linear-gradient(to bottom right, #fefefe, #e0e0e0);
+            z-index: 1; /* Default z-index */
+            transition: transform 0.2s ease; /* Smooth transition for hover if added */
         }
+        .blackjack-card:first-child {
+            margin-left: 0; /* Remove negative margin for the first card */
+        }
+        .blackjack-card:nth-child(2) { z-index: 2; } /* Layering for better visibility */
+        .blackjack-card:nth-child(3) { z-index: 3; }
+        .blackjack-card:nth-child(4) { z-index: 4; }
+        .blackjack-card:nth-child(5) { z-index: 5; }
+        /* Add more if players can get more cards */
+
         .blackjack-card .card-rank {
             font-size: 1.8em; /* Adjusted font size */
             line-height: 1;
@@ -665,6 +689,27 @@
         closeButtonX.addEventListener('click', hideGameModal);
 
 
+        // Betting Area (now with input field) - moved to appear directly after stats header
+        bettingAreaDiv = document.createElement('div');
+        bettingAreaDiv.className = 'blackjack-betting-area';
+        bettingAreaDiv.style.display = 'flex'; // Default to flex, will be hidden later
+
+        betInput = document.createElement('input');
+        betInput.type = 'number';
+        betInput.id = 'betInput';
+        betInput.min = '1';
+        betInput.placeholder = 'Enter Bet';
+        betInput.value = '10'; // Default bet value
+
+        placeBetBtn = document.createElement('button');
+        placeBetBtn.id = 'placeBetBtn';
+        placeBetBtn.textContent = 'Place Bet';
+        placeBetBtn.addEventListener('click', handlePlaceBet); // Event listener for the new button
+
+        bettingAreaDiv.appendChild(betInput);
+        bettingAreaDiv.appendChild(placeBetBtn);
+
+
         // Dealer's Section (Avatar, Hand)
         const dealerSection = document.createElement('div');
         dealerSection.className = 'dealer-section';
@@ -724,27 +769,6 @@
         playerScoreDiv = playerNameScoreDiv.querySelector('#playerScore');
 
 
-        // Betting Area (now with input field)
-        bettingAreaDiv = document.createElement('div');
-        bettingAreaDiv.className = 'blackjack-betting-area';
-        bettingAreaDiv.style.display = 'flex'; // Default to flex, will be hidden later
-
-        betInput = document.createElement('input');
-        betInput.type = 'number';
-        betInput.id = 'betInput';
-        betInput.min = '1';
-        betInput.placeholder = 'Enter Bet';
-        betInput.value = '10'; // Default bet value
-
-        placeBetBtn = document.createElement('button');
-        placeBetBtn.id = 'placeBetBtn';
-        placeBetBtn.textContent = 'Place Bet';
-        placeBetBtn.addEventListener('click', handlePlaceBet); // Event listener for the new button
-
-        bettingAreaDiv.appendChild(betInput);
-        bettingAreaDiv.appendChild(placeBetBtn);
-
-
         // Game Message
         gameMessageDiv = document.createElement('div');
         gameMessageDiv.className = 'blackjack-message playing';
@@ -790,11 +814,11 @@
         // Append all elements to modal content based on grid areas
         modalContent.appendChild(statsHeaderDiv);
         modalContent.appendChild(closeButtonX);
+        modalContent.appendChild(bettingAreaDiv); // Betting area directly after stats
         modalContent.appendChild(dealerSection);
         modalContent.appendChild(dealerNameScoreDiv);
         modalContent.appendChild(playerSection);
         modalContent.appendChild(playerNameScoreDiv);
-        modalContent.appendChild(bettingAreaDiv); // Now betting area is directly added
         modalContent.appendChild(gameMessageDiv);
         modalContent.appendChild(controlsDiv);
         modalContent.appendChild(bottomControlsDiv);
@@ -942,17 +966,25 @@
     // Updates the display of hands and scores
     function updateUI(showDealerFullHand = false) {
         // Player Hand
-        playerHandDiv.innerHTML = playerHand.map(card => `<div class="blackjack-card">${getCardDisplay(card)}</div>`).join('');
+        playerHandDiv.innerHTML = playerHand.map((card, index) => {
+            // Apply z-index based on index for correct layering, higher index on top
+            return `<div class="blackjack-card" style="z-index:${index + 1};">${getCardDisplay(card)}</div>`;
+        }).join('');
         playerScoreDiv.textContent = getHandValue(playerHand);
 
         // Dealer Hand
         dealerHandDiv.innerHTML = '';
         if (showDealerFullHand) {
-            dealerHandDiv.innerHTML = dealerHand.map(card => `<div class="blackjack-card">${getCardDisplay(card)}</div>`).join('');
+            dealerHandDiv.innerHTML = dealerHand.map((card, index) => {
+                 return `<div class="blackjack-card" style="z-index:${index + 1};">${getCardDisplay(card)}</div>`;
+            }).join('');
             dealerScoreDiv.textContent = getHandValue(dealerHand);
         } else {
             // Show only first card, second card as hidden
-            dealerHandDiv.innerHTML = `<div class="blackjack-card">${getCardDisplay(dealerHand[0])}</div><div class="blackjack-card hidden-card">?</div>`;
+            dealerHandDiv.innerHTML = `
+                <div class="blackjack-card" style="z-index:1;">${getCardDisplay(dealerHand[0])}</div>
+                <div class="blackjack-card hidden-card" style="z-index:2;">?</div>
+            `;
             dealerScoreDiv.textContent = getHandValue([dealerHand[0]]); // Show score of only the visible card
         }
     }
@@ -1154,7 +1186,7 @@
                 if (commerceUserField && user2userReasonField && user2userAmountField) {
                     commerceUserField.value = recipient;
                     user2userReasonField.value = reason;
-                    user2userAmountField.value = amount.toFixed(2); // Ensure consistent decimal format
+                    user22userAmountField.value = amount.toFixed(2); // Ensure consistent decimal format
 
                     // IMPORTANT: Using alert() here to notify the user about pre-filling.
                     // This is for out-of-game context on the mycredits.php page.
