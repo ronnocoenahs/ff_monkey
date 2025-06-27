@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.16 // Increased version for removing Top 10s and player avatar parsing
+// @version      2.17 // Increased version for fixing message z-index
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers. Now with a start screen!
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -526,6 +526,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            z-index: 6; /* Added z-index to be above the Rags2Riches title */
         }
         .blackjack-message.win { color: #2ecc71; }
         .blackjack-message.lose { color: #e74c3c; }
@@ -1440,8 +1441,8 @@
                 } else {
                     console.error('FunFile Blackjack: Could not find all message compose form fields on messages.php. Is the page structure correct?');
                     GM_deleteValue(STORAGE_KEY_MESSAGE_PENDING);
-                    GM_deleteValue(STORAGE_KEY_MESSAGE_RECIPIENT);
-                    GM_deleteValue(STORAGE_KEY_MESSAGE_SUBJECT);
+                    GM_deleteValue(STORAGE_KEY_RECIPIENT);
+                    GM_deleteValue(STORAGE_KEY_SUBJECT);
                     GM_deleteValue(STORAGE_KEY_MESSAGE_BODY);
                     alert("Blackjack message pre-filling failed. Please check console for errors.");
                 }
