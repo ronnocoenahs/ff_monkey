@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      1.1 // Increased version for title removal and enhanced stats display
+// @version      1.4 // Increased version for improved layout alignment and centering
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -18,6 +18,7 @@
     // --- Game Configuration ---
     const DEALER_NAME = "Mugiwara";
     const DEALER_IMAGE_URL = "https://ptpimg.me/95xrpn.jpg"; // Mugiwara's image URL
+    const PLAYER_AVATAR_PLACEHOLDER_URL = "https://placehold.co/100x100/333/ecf0f1?text=YOU"; // Placeholder for player avatar
     // These multipliers are for display and calculation within the game.
     // Actual transfers are done manually via mycredits.php.
     const BLACKJACK_PAYOUT_MULTIPLIER = 1.5; // Blackjack typically pays 3:2 (1.5x bet)
@@ -45,6 +46,7 @@
     // --- UI Elements (will be populated once the DOM is ready) ---
     let gameModal, dealerHandDiv, dealerScoreDiv, playerHandDiv, playerScoreDiv, gameMessageDiv, hitBtn, standBtn, newGameBtn;
     let currentCreditsDisplay, betInput, placeBetBtn, winsDisplayElement, lossesDisplayElement, totalEarnedDisplay, totalLostDisplay, transferCreditsBtn;
+    let playerAvatarDiv; // Added for player avatar
 
     // --- Card Deck Logic ---
     const suits = ['♥', '♦', '♣', '♠']; // Heart, Diamond, Club, Spade emojis
@@ -104,7 +106,7 @@
 
     // Converts a card object to its display string
     function getCardDisplay(card) {
-        return `${card.rank}${card.suit}`;
+        return `<div class="card-rank">${card.rank}</div><div class="card-suit ${ (card.suit === '♥' || card.suit === '♦') ? 'red-suit' : ''}">${card.suit}</div>`;
     }
 
     // --- DOM Parsing for User Credits ---
@@ -213,36 +215,53 @@
             background-position: center;
             background-repeat: no-repeat;
             background-blend-mode: overlay; /* Blend mode can affect overall look */
-            display: flex; /* Use flexbox for internal layout */
-            flex-direction: column; /* Stack children vertically */
-            justify-content: space-between; /* Distribute space */
+            
+            /* Positioning context for absolute elements */
+            position: relative; /* CRITICAL for absolute positioning of children */
+            display: grid; /* Use grid for main layout */
+            grid-template-areas:
+                "stats stats stats"
+                "dealer-avatar dealer-hand player-avatar" /* Adjusted for player avatar positioning */
+                "dealer-name-score . player-name-score" /* New row for names/scores */
+                ". message ."
+                ". betting-area ." /* Betting area in the center */
+                ". controls ."
+                ". bottom-controls .";
+            grid-template-columns: 1fr 1.5fr 1fr; /* Center column wider */
+            grid-template-rows: auto auto auto auto auto auto auto; /* Adjusted rows */
+            gap: 5px 0; /* Reduced vertical gap */
+            align-items: center; /* Vertically center content in rows by default */
         }
+
         .blackjack-modal-backdrop.show .blackjack-modal-content {
             transform: scale(1);
         }
 
         /* Stats Header Styling */
-        .blackjack-stats-header { /* New class for the top stat display */
-            font-size: 1.3em; /* Larger font for header */
+        .blackjack-stats-header {
+            grid-area: stats;
+            font-size: 1.3em;
             font-weight: bold;
-            color: #f39c12; /* Orange for main stats */
-            margin-bottom: 20px; /* Space below header */
-            padding-bottom: 10px; /* Padding for visual separation */
-            border-bottom: 1px solid rgba(255,255,255,0.2); /* Subtle separator */
+            color: #f39c12;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
             text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+            width: 100%; /* Occupy full width of grid area */
+            text-align: center;
         }
         .blackjack-stats-header span {
-            color: #ecf0f1; /* White for labels */
+            color: #ecf0f1;
             margin-left: 5px;
             margin-right: 15px;
-            font-weight: normal; /* Labels not as bold as values */
+            font-weight: normal;
         }
-        .blackjack-stats-header .value { /* Class for the actual numerical values */
-            color: #2ecc71; /* Green for positive, etc. */
+        .blackjack-stats-header .value {
+            color: #2ecc71;
             font-weight: bold;
         }
         .blackjack-stats-header .value.loss {
-            color: #e74c3c; /* Red for losses */
+            color: #e74c3c;
         }
         .blackjack-stats-header .value.earned {
             color: #2ecc71;
@@ -251,30 +270,68 @@
             color: #e74c3c;
         }
 
+        /* Avatar Containers (now directly positioned by grid areas) */
+        .dealer-section {
+            grid-area: dealer-avatar;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .player-section {
+            grid-area: player-avatar;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .dealer-name-score {
+            grid-area: dealer-name-score;
+            text-align: center;
+        }
+        .player-name-score {
+            grid-area: player-name-score;
+            text-align: center;
+        }
+
+        .avatar-container {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 3px solid #f39c12;
+            overflow: hidden;
+            margin-bottom: 10px; /* Space between avatar and hand text */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #333; /* Fallback for avatar */
+        }
+        .avatar-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
 
         .blackjack-modal-content h3 {
-            margin-top: 15px; /* Adjust margin for headers */
-            margin-bottom: 10px;
-            color: #f1c40f; /* Sunflower yellow for hand titles */
-        }
-        .blackjack-info { /* Original userInfoDiv is now just for credits, keeping original style */
-            font-size: 1.1em;
-            color: #bdc3c7;
-            margin-bottom: 15px;
-        }
-        .blackjack-info span {
-            font-weight: bold;
-            color: #f39c12;
+            margin-top: 0; /* Reset default h3 margin */
+            margin-bottom: 5px; /* Smaller margin for hand titles */
+            color: #f1c40f;
+            font-size: 1.2em; /* Smaller hand title font */
         }
 
         /* Betting Area */
         .blackjack-betting-area {
+            grid-area: betting-area; /* Assigned grid area */
             display: flex;
             justify-content: center;
             align-items: center;
             margin-top: 15px;
             margin-bottom: 25px;
-            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            flex-wrap: wrap;
         }
         .blackjack-betting-area label {
             margin-right: 10px;
@@ -290,15 +347,15 @@
             color: #333;
             font-size: 1em;
             text-align: center;
-            -moz-appearance: textfield; /* Hide arrows for Firefox */
+            -moz-appearance: textfield;
         }
         .blackjack-betting-area input[type="number"]::-webkit-outer-spin-button,
         .blackjack-betting-area input[type="number"]::-webkit-inner-spin-button {
-            -webkit-appearance: none; /* Hide arrows for Chrome, Safari, Edge */
+            -webkit-appearance: none;
             margin: 0;
         }
         .blackjack-betting-area button {
-            background-color: #3498db; /* Blue for Place Bet */
+            background-color: #3498db;
             color: white;
             padding: 8px 15px;
             border: none;
@@ -321,6 +378,7 @@
 
 
         .blackjack-message {
+            grid-area: message;
             font-size: 1.6em;
             font-weight: bold;
             margin-top: 25px;
@@ -329,28 +387,17 @@
             border-radius: 8px;
             background-color: rgba(0,0,0,0.2);
             color: #ecf0f1;
-            min-height: 1.5em; /* Prevent layout shift */
+            min-height: 1.5em;
+            display: flex; /* Use flex to center text vertically */
+            align-items: center;
+            justify-content: center;
         }
-        .blackjack-message.win { color: #2ecc71; /* Emerald Green */ }
-        .blackjack-message.lose { color: #e74c3c; /* Alizarin Red */ }
-        .blackjack-message.push { color: #3498db; /* Peter River Blue */ }
-        .blackjack-message.playing { color: #f1c40f; /* Sunflower Yellow */ }
+        .blackjack-message.win { color: #2ecc71; }
+        .blackjack-message.lose { color: #e74c3c; }
+        .blackjack-message.push { color: #3498db; }
+        .blackjack-message.playing { color: #f1c40f; }
         .blackjack-message.error { color: #e74c3c; }
 
-
-        /* Dealer Image Styling */
-        #dealerImage {
-            width: 100px; /* Set desired size */
-            height: 100px;
-            border-radius: 50%; /* Make it circular */
-            object-fit: cover; /* Ensure image covers the area without distortion */
-            border: 3px solid #f39c12; /* Matches modal border color */
-            margin-bottom: 15px; /* Spacing below image */
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); /* Soft shadow for depth */
-            display: block; /* Ensures it takes up its own line */
-            margin-left: auto; /* Center the image */
-            margin-right: auto; /* Center the image */
-        }
 
         /* Card Display */
         .blackjack-hand {
@@ -359,32 +406,51 @@
             align-items: center;
             flex-wrap: wrap;
             margin-bottom: 20px;
-            min-height: 80px; /* Ensure space even with few cards */
+            min-height: 80px;
         }
+        /* Specific grid areas for hands */
+        #dealerHandDiv { grid-area: dealer-hand; }
+        #playerHandDiv { grid-area: player-hand; }
+
         .blackjack-card {
-            background-color: #fefefe; /* White card face */
+            background-color: #fefefe;
             color: #333;
-            border: 1px solid #7f8c8d; /* Grey border */
-            border-radius: 8px;
-            padding: 10px 15px;
+            border: 2px solid #555; /* Darker border for cards */
+            border-radius: 12px; /* More rounded corners for card shape */
+            padding: 5px;
             margin: 5px;
-            font-size: 2.5em; /* Large card text */
             font-weight: bold;
-            display: inline-flex;
+            display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
-            width: 80px; /* Fixed width */
-            height: 120px; /* Fixed height */
+            width: 75px; /* Slightly smaller width */
+            height: 110px; /* Slightly smaller height */
             box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
-            text-shadow: none; /* Remove text shadow for cards */
+            text-shadow: none;
             position: relative;
-            overflow: hidden; /* For potential future card effects */
+            overflow: hidden;
+            font-family: 'Georgia', serif; /* A classic, slightly wider font */
+            background-image: linear-gradient(to bottom right, #fefefe, #e0e0e0); /* Subtle gradient for card face */
+        }
+        .blackjack-card .card-rank {
+            font-size: 2em; /* Larger font for rank */
+            line-height: 1;
+            margin-top: 5px; /* Push rank down from top */
+        }
+        .blackjack-card .card-suit {
+            font-size: 1.8em; /* Larger font for suit */
+            line-height: 1;
+            margin-bottom: 5px; /* Push suit up from bottom */
+        }
+        /* Specific suit colors */
+        .blackjack-card .card-suit.red-suit {
+            color: #e74c3c; /* Red for hearts/diamonds */
         }
         .blackjack-card.hidden-card {
-            background-color: #c0392b; /* Dark red for hidden card back */
-            color: #e74c3c; /* Red text */
-            border: 1px solid #a93226;
+            background-color: #3f0000; /* Even darker red for hidden card back */
+            color: #e74c3c;
+            border: 2px solid #a93226;
             font-size: 1.5em;
             justify-content: center;
             align-items: center;
@@ -393,72 +459,97 @@
             display: flex;
         }
 
+
         /* Buttons (Hit, Stand, New Game, Close) */
         .blackjack-controls {
-            margin-top: 20px; /* Spacing above buttons */
+            grid-area: controls;
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px; /* Space between buttons */
+            flex-wrap: wrap; /* Allow wrapping */
         }
         .blackjack-controls button {
-            background-color: #2ecc71; /* Emerald Green */
+            background-color: #444; /* Darker button base */
             color: white;
-            padding: 12px 25px;
-            border: none;
+            padding: 10px 20px; /* Slightly smaller padding */
+            border: 1px solid #666; /* Subtle border */
             border-radius: 8px;
             cursor: pointer;
-            font-size: 1.2em;
+            font-size: 1.1em; /* Slightly smaller font */
             font-weight: bold;
             transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.1s ease;
-            margin: 0 8px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             text-transform: uppercase;
+            background-image: linear-gradient(to bottom right, #555, #333);
         }
         .blackjack-controls button:hover {
-            background-color: #27ae60;
+            background-color: #666;
             transform: translateY(-2px);
             box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+            background-image: linear-gradient(to bottom right, #666, #444);
         }
         .blackjack-controls button:active {
             transform: translateY(0);
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
         .blackjack-controls button:disabled {
-            background-color: #7f8c8d; /* Greyed out when disabled */
+            background-color: #7f8c8d;
             cursor: not-allowed;
             box-shadow: none;
             transform: none;
+            background-image: none;
         }
 
-        #blackjackStandBtn { background-color: #e67e22; /* Carrot Orange */ }
-        #blackjackStandBtn:hover { background-color: #d35400; }
-        #blackjackNewGameBtn { background-color: #3498db; /* Peter River Blue */ }
-        #blackjackNewGameBtn:hover { background-color: #2980b9; }
-        #blackjackCloseBtn {
-            background-color: #e74c3c; /* Alizarin Red */
-            margin-top: 20px;
+        /* Specific button overrides for colors */
+        #blackjackHitBtn { background-color: #2ecc71; background-image: linear-gradient(to bottom right, #2ecc71, #27ae60); }
+        #blackjackHitBtn:hover { background-color: #27ae60; background-image: linear-gradient(to bottom right, #27ae60, #229954); }
+
+        #blackjackStandBtn { background-color: #e67e22; background-image: linear-gradient(to bottom right, #e67e22, #d35400); }
+        #blackjackStandBtn:hover { background-color: #d35400; background-image: linear-gradient(to bottom right, #d35400, #bb4400); }
+
+        #blackjackNewGameBtn { background-color: #3498db; background-image: linear-gradient(to bottom right, #3498db, #2980b9); }
+        #blackjackNewGameBtn:hover { background-color: #2980b9; background-image: linear-gradient(to bottom right, #2980b9, #206da0); }
+
+        /* Bottom Controls (Transfer, Close) */
+        .bottom-controls { /* New class for the div containing transfer/close buttons */
+            grid-area: bottom-controls;
+            display: flex;
+            justify-content: center;
+            margin-top: 10px; /* Less margin as it's part of the overall layout now */
+            gap: 15px; /* Space between buttons */
+            flex-wrap: wrap;
         }
-        #blackjackCloseBtn:hover { background-color: #c0392b; }
-        #transferCreditsBtn { /* New button style */
-            background-color: #f39c12; /* Orange for transfer */
+        .bottom-controls button { /* Apply similar dark theme as other controls */
+            background-color: #444;
             color: white;
-            padding: 12px 25px;
-            border: none;
+            padding: 10px 20px;
+            border: 1px solid #666;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 1.2em;
+            font-size: 1.1em;
             font-weight: bold;
             transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.1s ease;
-            margin: 0 8px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             text-transform: uppercase;
+            background-image: linear-gradient(to bottom right, #555, #333);
         }
-        #transferCreditsBtn:hover {
-            background-color: #e67e22;
+        .bottom-controls button:hover {
+            background-color: #666;
             transform: translateY(-2px);
             box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+            background-image: linear-gradient(to bottom right, #666, #444);
         }
-        #transferCreditsBtn:active {
+        .bottom-controls button:active {
             transform: translateY(0);
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
+
+        #blackjackCloseBtn { background-color: #e74c3c; background-image: linear-gradient(to bottom right, #e74c3c, #c0392b); }
+        #blackjackCloseBtn:hover { background-color: #c0392b; background-image: linear-gradient(to bottom right, #c0392b, #a93226); }
+
+        #transferCreditsBtn { background-color: #f39c12; background-image: linear-gradient(to bottom right, #f39c12, #e67e22); }
+        #transferCreditsBtn:hover { background-color: #e67e22; background-image: linear-gradient(to bottom right, #e67e22, #d35400); }
     `);
 
     // Function to create the Blackjack game modal and its elements
@@ -478,7 +569,7 @@
         statsHeaderDiv.innerHTML = `
             <span class="value" id="currentCreditsDisplay">0.00</span><span class="label"> cr.</span>
             <span class="label">Wins:</span> <span class="value" id="winsDisplay">0</span>
-            <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span>
+            <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span><br>
             <span class="label">Earned:</span> <span class="value earned" id="totalEarnedDisplay">0.00</span>
             <span class="label">Lost:</span> <span class="value lost" id="totalLostDisplay">0.00</span>
         `;
@@ -489,7 +580,66 @@
         totalLostDisplay = statsHeaderDiv.querySelector('#totalLostDisplay');
 
 
-        // Betting Area
+        // Dealer's Section (Avatar, Hand)
+        const dealerSection = document.createElement('div');
+        dealerSection.className = 'dealer-section';
+
+        const dealerAvatarContainer = document.createElement('div');
+        dealerAvatarContainer.className = 'avatar-container';
+        const dealerImage = document.createElement('img');
+        dealerImage.src = DEALER_IMAGE_URL;
+        dealerImage.alt = `${DEALER_NAME} dealer image`;
+        dealerImage.onerror = function() {
+            this.onerror = null;
+            this.src = `https://placehold.co/100x100/333/ecf0f1?text=${DEALER_NAME.substring(0,1)}`;
+            console.error(`Failed to load dealer image from ${DEALER_IMAGE_URL}. Displaying placeholder.`);
+        };
+        dealerAvatarContainer.appendChild(dealerImage);
+        dealerSection.appendChild(dealerAvatarContainer);
+
+        dealerHandDiv = document.createElement('div');
+        dealerHandDiv.id = 'dealerHandDiv'; // Assign ID for grid area
+        dealerHandDiv.className = 'blackjack-hand';
+        dealerSection.appendChild(dealerHandDiv);
+
+
+        // Dealer Name and Score
+        const dealerNameScoreDiv = document.createElement('div');
+        dealerNameScoreDiv.className = 'dealer-name-score';
+        dealerNameScoreDiv.innerHTML = `<h3>${DEALER_NAME}'s Hand: <span id="dealerScore"></span></h3>`;
+        dealerScoreDiv = dealerNameScoreDiv.querySelector('#dealerScore');
+
+
+        // Player's Section (Avatar, Hand)
+        const playerSection = document.createElement('div');
+        playerSection.className = 'player-section';
+
+        const playerAvatarContainer = document.createElement('div');
+        playerAvatarContainer.className = 'avatar-container';
+        const playerImage = document.createElement('img');
+        playerImage.src = PLAYER_AVATAR_PLACEHOLDER_URL; // Using placeholder for player
+        playerImage.alt = 'Your avatar';
+        playerImage.onerror = function() {
+            this.onerror = null;
+            this.src = `https://placehold.co/100x100/333/ecf0f1?text=YOU`;
+            console.error(`Failed to load player image placeholder. Displaying default placeholder.`);
+        };
+        playerAvatarContainer.appendChild(playerImage);
+        playerSection.appendChild(playerAvatarContainer);
+
+        playerHandDiv = document.createElement('div');
+        playerHandDiv.id = 'playerHandDiv'; // Assign ID for grid area
+        playerHandDiv.className = 'blackjack-hand';
+        playerSection.appendChild(playerHandDiv);
+
+        // Player Name and Score
+        const playerNameScoreDiv = document.createElement('div');
+        playerNameScoreDiv.className = 'player-name-score';
+        playerNameScoreDiv.innerHTML = `<h3>Your Hand: <span id="playerScore"></span></h3>`;
+        playerScoreDiv = playerNameScoreDiv.querySelector('#playerScore');
+
+
+        // Betting Area (will be placed in its own grid area)
         const bettingArea = document.createElement('div');
         bettingArea.className = 'blackjack-betting-area';
         const betLabel = document.createElement('label');
@@ -508,42 +658,12 @@
         bettingArea.appendChild(placeBetBtn);
 
 
-        // Dealer's Area
-        const dealerArea = document.createElement('div');
-        dealerArea.innerHTML = `<h3>${DEALER_NAME}'s Hand: <span id="dealerScore"></span></h3>`;
-
-        const dealerImage = document.createElement('img'); // Create image element
-        dealerImage.id = 'dealerImage';
-        dealerImage.src = DEALER_IMAGE_URL;
-        dealerImage.alt = `${DEALER_NAME} dealer image`;
-        // Fallback for image loading errors:
-        dealerImage.onerror = function() {
-            this.onerror = null; // Prevent infinite loop
-            this.src = `https://placehold.co/100x100/333/ecf0f1?text=${DEALER_NAME.substring(0,1)}`; // Placeholder with initial
-            console.error(`Failed to load dealer image from ${DEALER_IMAGE_URL}. Displaying placeholder.`);
-        };
-        dealerArea.appendChild(dealerImage); // Append image to dealer area
-
-        dealerHandDiv = document.createElement('div');
-        dealerHandDiv.className = 'blackjack-hand';
-        dealerArea.appendChild(dealerHandDiv);
-        dealerScoreDiv = dealerArea.querySelector('#dealerScore');
-
-
-        // Player's Area
-        const playerArea = document.createElement('div');
-        playerArea.innerHTML = `<h3>Your Hand: <span id="playerScore"></span></h3>`;
-        playerHandDiv = document.createElement('div');
-        playerHandDiv.className = 'blackjack-hand';
-        playerArea.appendChild(playerHandDiv);
-        playerScoreDiv = playerArea.querySelector('#playerScore');
-
         // Game Message
         gameMessageDiv = document.createElement('div');
         gameMessageDiv.className = 'blackjack-message playing';
         gameMessageDiv.textContent = 'Place your bet to start!';
 
-        // Controls (Hit, Stand, New Game, Close)
+        // Controls (Hit, Stand, New Game)
         const controlsDiv = document.createElement('div');
         controlsDiv.className = 'blackjack-controls';
 
@@ -566,8 +686,7 @@
 
         // Additional Control Buttons (Transfer Credits, Close Game)
         const bottomControlsDiv = document.createElement('div');
-        bottomControlsDiv.className = 'blackjack-controls'; // Reusing class for consistent styling
-        bottomControlsDiv.style.marginTop = '20px'; // Add some space
+        bottomControlsDiv.className = 'bottom-controls'; // Changed class name
 
         transferCreditsBtn = document.createElement('button');
         transferCreditsBtn.id = 'transferCreditsBtn';
@@ -581,14 +700,16 @@
         bottomControlsDiv.appendChild(closeBtn);
 
 
-        // Append all elements to modal content
-        modalContent.appendChild(statsHeaderDiv); // New stats header at the top
-        modalContent.appendChild(bettingArea); // Betting input and button
-        modalContent.appendChild(dealerArea);
-        modalContent.appendChild(playerArea);
+        // Append all elements to modal content based on grid areas
+        modalContent.appendChild(statsHeaderDiv);
+        modalContent.appendChild(dealerSection);
+        modalContent.appendChild(dealerNameScoreDiv); // Add dealer name and score
+        modalContent.appendChild(playerSection);
+        modalContent.appendChild(playerNameScoreDiv); // Add player name and score
+        modalContent.appendChild(bettingArea);
         modalContent.appendChild(gameMessageDiv);
         modalContent.appendChild(controlsDiv);
-        modalContent.appendChild(bottomControlsDiv); // Append the new div for bottom controls
+        modalContent.appendChild(bottomControlsDiv);
 
         // Append modal content to backdrop
         gameModal.appendChild(modalContent);
@@ -599,9 +720,9 @@
         // Event listeners for buttons
         hitBtn.addEventListener('click', playerHit);
         standBtn.addEventListener('click', playerStand);
-        newGameBtn.addEventListener('click', resetGame); // New game button now calls reset
+        newGameBtn.addEventListener('click', resetGame);
         placeBetBtn.addEventListener('click', placeBet);
-        transferCreditsBtn.addEventListener('click', redirectToCreditTransfer); // New listener for transfer button
+        transferCreditsBtn.addEventListener('click', redirectToCreditTransfer);
         closeBtn.addEventListener('click', hideGameModal);
 
         // Initial UI state
@@ -613,6 +734,7 @@
 
     // Updates the win/loss/total earned/lost display
     function updateStatsDisplay() {
+        if (currentCreditsDisplay) currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
         if (winsDisplayElement) winsDisplayElement.textContent = wins;
         if (lossesDisplayElement) lossesDisplayElement.textContent = losses;
         if (totalEarnedDisplay) totalEarnedDisplay.textContent = totalEarned.toFixed(2);
