@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.7 // Increased version for fixing global scrolling issue
+// @version      2.8 // Increased version for button repositioning/styling and refined scrolling
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -155,8 +155,47 @@
             height: 100%;
             margin: 0;
             padding: 0;
-            /* REMOVED: overflow: hidden; */ /* Allow scrolling on the main page */
+            /* No overflow: hidden here. It should only apply to the modal when open. */
         }
+
+        /* Main Button Styling (for the button that opens the game) */
+        #ragsToRichesBtnContainer {
+            width: 100%; /* Ensure it takes full width */
+            text-align: center; /* Center child elements (the button) */
+            margin: 15px 0; /* Add some vertical spacing, adjust as needed */
+            clear: both; /* Important to clear any floats above it */
+            box-sizing: border-box; /* Include padding/border in width */
+        }
+        #ragsToRichesBtn {
+            background-color: #333; /* Dark background */
+            color: #ecf0f1; /* Light text color */
+            padding: 6px 20px; /* Slimmed down padding */
+            border: none;
+            border-radius: 6px; /* Slimmer border-radius */
+            font-size: 1.2em; /* Slimmer font size */
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3); /* Slimmer shadow */
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: inline-block; /* Now it's inside a text-align: center parent */
+            background-image: linear-gradient(to bottom right, #444, #222); /* Subtle gradient */
+            border: 1px solid #555; /* Slightly lighter border */
+            max-width: 180px; /* Constrain width to make it slimmer */
+            white-space: nowrap; /* Prevent text wrap */
+        }
+        #ragsToRichesBtn:hover {
+            background-color: #555; /* Lighter on hover */
+            transform: translateY(-1px); /* Less dramatic lift */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); /* Adjusted shadow on hover */
+            background-image: linear-gradient(to bottom right, #555, #333);
+        }
+        #ragsToRichesBtn:active {
+            transform: translateY(0);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        }
+
 
         /* Modal Backdrop */
         .blackjack-modal-backdrop {
@@ -209,7 +248,7 @@
             display: grid; /* Use grid for main layout */
             grid-template-areas:
                 "stats-header stats-header stats-header" /* stats spans all columns for centering */
-                ". betting-area ." /* Betting area now right under stats */
+                ". betting-area ." /* Betting area now right under stats, centered */
                 "dealer-avatar . player-avatar"
                 "dealer-name-score . player-name-score"
                 "dealer-hand game-message player-hand" /* Hands on sides, message in center, allowing vertical stretch for cards */
@@ -1121,22 +1160,18 @@
 
     // --- Initialize "Rags To Riches" button ---
     function initializeRagsToRichesButton() {
-        const headBanner = document.querySelector('.head_banner'); // Select the banner div directly
-        if (headBanner) {
-            const ragsToRichesBtn = document.createElement('button');
-            ragsToRichesBtn.id = 'ragsToRichesBtn';
-            ragsToRichesBtn.textContent = 'Rags2Riches'; // Button text
-            ragsToRichesBtn.addEventListener('click', showGameModal);
+        // Create a new container for the button to control its centering and layout
+        const buttonContainer = document.createElement('div');
+        buttonContainer.id = 'ragsToRichesBtnContainer'; // Give it an ID for styling
 
-            // Insert the button directly after the head_banner div
-            // The .head_banner div is a direct child of .maincontent or .main_wrapper
-            // so we need to insert it after the head_banner itself.
-            headBanner.parentNode.insertBefore(ragsToRichesBtn, headBanner.nextSibling);
-        } else {
-            // Fallback if .head_banner not found (less likely on FunFile)
-            document.body.prepend(ragsToRichesBtn);
-            console.warn("FunFile Blackjack: Could not find .head_banner. Placing Rags2Riches button at body start.");
-        }
+        const ragsToRichesBtn = document.createElement('button');
+        ragsToRichesBtn.id = 'ragsToRichesBtn';
+        ragsToRichesBtn.textContent = 'Rags2Riches'; // Button text
+        ragsToRichesBtn.addEventListener('click', showGameModal);
+        buttonContainer.appendChild(ragsToRichesBtn);
+
+        // Prepend the new container to the body to ensure it's at the top level
+        document.body.prepend(buttonContainer);
     }
 
     // --- Handle Credit Pre-filling on mycredits.php ---
