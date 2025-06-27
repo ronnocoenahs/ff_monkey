@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.9 // Increased version for "Report Totals" message functionality
+// @version      2.10 // Increased version for sending PM to Mugiwara via profile parsing
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -9,6 +9,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
+// @grant        GM_xmlhttpRequest // Added for fetching Mugiwara's profile
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -19,6 +20,7 @@
     const DEALER_NAME = "Mugiwara";
     const DEALER_IMAGE_URL = "https://ptpimg.me/95xrpn.jpg"; // Mugiwara's image URL
     const PLAYER_AVATAR_PLACEHOLDER_URL = "https://ptpimg.me/02z355"; // Updated player avatar URL
+    const MUGIWARA_PROFILE_ID = 377548; // Mugiwara's specific user ID for profile page
     // These multipliers are for display and calculation within the game.
     // Actual transfers are done manually via mycredits.php.
     const BLACKJACK_PAYOUT_MULTIPLIER = 1.5; // Blackjack typically pays 3:2 (1.5x bet)
@@ -1174,20 +1176,51 @@
         }
     }
 
-    // New function: Sends a message to Mugiwara with totals
+    // New function: Sends a message to Mugiwara with totals by parsing his profile
     function sendPayoutReport() {
-        const messageRecipient = DEALER_NAME;
-        const messageSubject = `Blackjack Game Totals Report from ${actualUsersUsername}`;
-        const messageBody = `Hello ${DEALER_NAME},\n\nHere are my final Blackjack game totals:\n\nTotal Credits Earned: ${totalEarned.toFixed(2)} cr.\nTotal Credits Lost: ${totalLost.toFixed(2)} cr.\nWins: ${wins}\nLosses: ${losses}\n\nThanks,\n${actualUsersUsername}`;
+        const mugiwaraProfileUrl = `https://www.funfile.org/userdetails.php?id=${MUGIWARA_PROFILE_ID}`;
+        const messageRecipient = DEALER_NAME; // Still use Mugiwara as the recipient name for pre-filling
 
-        // Store message details for pre-filling
-        GM_setValue(STORAGE_KEY_MESSAGE_PENDING, true);
-        GM_setValue(STORAGE_KEY_MESSAGE_RECIPIENT, messageRecipient);
-        GM_setValue(STORAGE_KEY_MESSAGE_SUBJECT, messageSubject);
-        GM_setValue(STORAGE_KEY_MESSAGE_BODY, messageBody);
+        gameMessageDiv.textContent = `Fetching Mugiwara's profile to compose message...`;
+        gameMessageDiv.classList.remove('error'); // Clear any previous error states
+        gameMessageDiv.classList.add('playing'); // Indicate activity
 
-        // Redirect to the message compose page
-        window.location.href = `https://www.funfile.org/messages.php?action=compose&receiver=${encodeURIComponent(messageRecipient)}`;
+        GM_xmlhttpRequest({
+            method: "GET",
+            url: mugiwaraProfileUrl,
+            onload: function(response) {
+                const doc = new DOMParser().parseFromString(response.responseText, "text/html");
+                // Find the 'Send private message' link. This is a common pattern.
+                const pmLink = doc.querySelector('a[href*="messages.php?action=compose"]');
+
+                if (pmLink) {
+                    const messageSubject = `Blackjack Game Totals Report from ${actualUsersUsername}`;
+                    const messageBody = `Hello ${DEALER_NAME},\n\nHere are my final Blackjack game totals:\n\nTotal Credits Earned: ${totalEarned.toFixed(2)} cr.\nTotal Credits Lost: ${totalLost.toFixed(2)} cr.\nWins: ${wins}\nLosses: ${losses}\n\nThanks,\n${actualUsersUsername}`;
+
+                    // The href from pmLink will contain messages.php?action=compose&id=USER_ID
+                    const composeUrl = pmLink.href;
+
+                    // Store message details for pre-filling
+                    GM_setValue(STORAGE_KEY_MESSAGE_PENDING, true);
+                    GM_setValue(STORAGE_KEY_MESSAGE_RECIPIENT, messageRecipient); // Store "Mugiwara"
+                    GM_setValue(STORAGE_KEY_MESSAGE_SUBJECT, messageSubject);
+                    GM_setValue(STORAGE_KEY_MESSAGE_BODY, messageBody);
+
+                    window.location.href = composeUrl; // Redirect to the pre-filled message page
+                } else {
+                    gameMessageDiv.textContent = `Could not find "Send private message" link on Mugiwara's profile.`;
+                    gameMessageDiv.classList.remove('playing');
+                    gameMessageDiv.classList.add('error');
+                    console.error("FunFile Blackjack: Could not find 'Send private message' link on Mugiwara's profile.");
+                }
+            },
+            onerror: function(response) {
+                gameMessageDiv.textContent = `Error fetching Mugiwara's profile. Please try again.`;
+                gameMessageDiv.classList.remove('playing');
+                gameMessageDiv.classList.add('error');
+                console.error("FunFile Blackjack: Error fetching Mugiwara's profile:", response.status, response.statusText);
+            }
+        });
     }
 
 
@@ -1220,7 +1253,7 @@
 
                 const commerceUserField = document.querySelector('input[name="commerce2user"]');
                 const user2userReasonField = document.querySelector('input[name="user2user_reason"]');
-                const user2userAmountField = document.querySelector('input[name="user2user"]'); // Corrected variable name
+                const user2userAmountField = document.querySelector('input[name="user2user"]');
 
                 if (commerceUserField && user2userReasonField && user2userAmountField) {
                     commerceUserField.value = recipient;
