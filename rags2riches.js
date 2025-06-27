@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      1.6 // Increased version for removing background placeholder and custom font for title
+// @version      1.9 // Increased version for stretched stats, prompt after game open, and confirmed no-text background
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -143,6 +143,14 @@
     // --- Game UI Elements and Styling ---
 
     GM_addStyle(`
+        /* Ensure html and body are set up for full viewport height */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent outer scrollbars */
+        }
+
         /* Main Button Styling */
         #ragsToRichesBtn {
             background-color: #333; /* Dark background */
@@ -201,10 +209,10 @@
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             text-align: center;
-            max-width: 850px; /* Wider */
+            max-width: 900px; /* Wider to provide more space */
             width: 95%;
-            max-height: 90vh; /* Limit height to 90% of viewport height */
-            overflow-y: auto; /* Enable vertical scrolling if content exceeds max-height */
+            height: 85vh; /* Fixed height to prevent scrolling */
+            overflow: hidden; /* Prevent internal scrolling */
             margin: 20px auto; /* Add margin for spacing from edges */
             transform: scale(0.9);
             transition: transform 0.4s ease;
@@ -213,7 +221,7 @@
             border: 3px solid #f39c12; /* Orange border */
 
             /* Poker table theme */
-            background-image: linear-gradient(to bottom, rgba(0,0,0,0.6), rgba(0,0,0,0.8)), url('https://placehold.co/850x450/228B22/FFFFFF?text='); /* Removed text from placeholder image */
+            background-image: linear-gradient(to bottom, rgba(0,0,0,0.6), rgba(0,0,0,0.8)), url('https://placehold.co/900x500/228B22/228B22'); /* Removed text, matched background color */
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
@@ -223,18 +231,22 @@
             position: relative; /* CRITICAL for absolute positioning of children */
             display: grid; /* Use grid for main layout */
             grid-template-areas:
-                "stats stats close-btn" /* Stats on left, close on right */
-                "dealer-avatar dealer-hand player-avatar"
+                "stats stats close-btn"
+                "dealer-avatar . player-avatar"
                 "dealer-name-score . player-name-score"
-                ". message ."
-                ". controls ." /* Moved controls up */
-                ". betting-area ." /* Betting area (hidden) below controls */
+                "dealer-hand game-message player-hand" /* Hands on sides, message in center, allowing vertical stretch for cards */
+                ". controls ."
                 ". bottom-controls .";
-            grid-template-columns: auto 1fr auto; /* Auto for avatars, 1fr for center, auto for player avatar */
-            grid-template-rows: auto auto auto auto auto auto auto; /* Adjusted rows */
+            grid-template-columns: 1fr 2fr 1fr; /* Flexible columns, center is wider */
+            grid-template-rows: auto 1fr auto 2fr auto auto; /* Adjusted rows for better spacing */
             gap: 5px 0; /* Reduced vertical gap */
             align-items: center; /* Vertically center content in rows by default */
             justify-content: center; /* Horizontally center grid items */
+        }
+
+        .blackjack-modal-backdrop.show {
+            opacity: 1;
+            visibility: visible;
         }
 
         .blackjack-modal-backdrop.show .blackjack-modal-content {
@@ -247,19 +259,22 @@
             font-size: 1.3em;
             font-weight: bold;
             color: #f39c12;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
+            margin-bottom: 5px; /* Reduced margin */
+            padding: 5px 10px; /* Reduced padding, adjusted to allow text to stretch */
             border-bottom: 1px solid rgba(255,255,255,0.2);
             text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
             width: 100%; /* Occupy full width of grid area */
-            text-align: left; /* Align to left within its grid area */
-            padding-left: 10px; /* Some padding for alignment */
+            text-align: center; /* Center horizontally across stats area */
+            display: flex; /* Use flexbox for internal alignment of stats */
+            justify-content: space-around; /* Distribute items evenly */
+            align-items: center;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
         }
         .blackjack-stats-header span {
             color: #ecf0f1;
-            margin-left: 5px;
-            margin-right: 15px;
+            margin: 0 8px; /* Adjusted margin for horizontal spacing */
             font-weight: normal;
+            display: inline-block; /* Ensure labels and values stay together but allow wrapping */
         }
         .blackjack-stats-header .value {
             color: #2ecc71;
@@ -294,7 +309,7 @@
             color: #e74c3c; /* Red on hover */
         }
 
-        /* Avatar Containers (now directly positioned by grid areas) */
+        /* Avatar Containers */
         .dealer-section {
             grid-area: dealer-avatar;
             display: flex;
@@ -314,19 +329,21 @@
         .dealer-name-score {
             grid-area: dealer-name-score;
             text-align: center;
+            margin-top: -15px; /* Pull up closer to avatar */
         }
         .player-name-score {
             grid-area: player-name-score;
             text-align: center;
+            margin-top: -15px; /* Pull up closer to avatar */
         }
 
         .avatar-container {
-            width: 100px;
-            height: 100px;
+            width: 90px; /* Slightly smaller avatar to save space */
+            height: 90px;
             border-radius: 50%;
             border: 3px solid #f39c12;
             overflow: hidden;
-            margin-bottom: 10px; /* Space between avatar and hand text */
+            margin-bottom: 5px; /* Reduced space */
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
             display: flex;
             justify-content: center;
@@ -341,10 +358,10 @@
         }
 
         .blackjack-modal-content h3 {
-            margin-top: 0; /* Reset default h3 margin */
-            margin-bottom: 5px; /* Smaller margin for hand titles */
+            margin-top: 0;
+            margin-bottom: 5px;
             color: #f1c40f;
-            font-size: 1.2em; /* Smaller hand title font */
+            font-size: 1.1em; /* Reduced hand title font size */
         }
 
         /* Betting Area (now hidden and managed by prompt) */
@@ -402,17 +419,16 @@
 
 
         .blackjack-message {
-            grid-area: message;
-            font-size: 1.6em;
+            grid-area: game-message; /* Corrected to 'game-message' from 'message' to match grid area */
+            font-size: 1.5em; /* Slightly smaller for compactness */
             font-weight: bold;
-            margin-top: 25px;
-            margin-bottom: 25px;
+            margin: 0; /* Remove top/bottom margins */
             padding: 10px;
             border-radius: 8px;
             background-color: rgba(0,0,0,0.2);
             color: #ecf0f1;
             min-height: 1.5em;
-            display: flex; /* Use flex to center text vertically */
+            display: flex;
             align-items: center;
             justify-content: center;
         }
@@ -424,20 +440,21 @@
 
         /* Rags 2 Riches Title */
         #rags2RichesTitle {
-            position: absolute; /* Absolute position over the felt */
+            position: absolute; /* Keep absolute to layer over grid cells */
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%); /* Center perfectly */
-            font-family: 'Luckiest Guy', cursive, 'Impact', 'Arial Black', sans-serif; /* Added Luckiest Guy as a good media font */
-            font-size: 3.5em; /* Large size */
-            color: rgba(243, 156, 18, 0.4); /* Orange, semi-transparent for a subtle watermark */
-            text-shadow: 2px 2px 5px rgba(0,0,0,0.7); /* Darker shadow for depth */
-            line-height: 0.9; /* Closer lines */
+            font-family: 'Luckiest Guy', cursive, 'Impact', 'Arial Black', sans-serif;
+            font-size: 4em; /* Adjusted size to be more like a logo */
+            color: rgba(255, 215, 0, 1); /* Fully opaque gold color */
+            text-shadow: 3px 3px 7px rgba(0,0,0,0.8); /* Stronger shadow for definition */
+            line-height: 0.8; /* Tighter line height for stacked words */
             pointer-events: none; /* Allow clicks to pass through */
             white-space: nowrap; /* Prevent wrapping if possible */
+            z-index: 5; /* Ensure it's above background, below cards/avatars */
         }
         #rags2RichesTitle span {
-            display: block; /* Each line on its own */
+            display: block; /* Each word on its own line */
             text-align: center;
         }
 
@@ -447,8 +464,9 @@
             justify-content: center;
             align-items: center;
             flex-wrap: wrap;
-            margin-bottom: 20px;
+            margin-bottom: 0; /* Remove bottom margin to save vertical space */
             min-height: 80px;
+            padding: 5px 0; /* Small vertical padding */
         }
         /* Specific grid areas for hands */
         #dealerHandDiv { grid-area: dealer-hand; }
@@ -457,43 +475,42 @@
         .blackjack-card {
             background-color: #fefefe;
             color: #333;
-            border: 2px solid #555; /* Darker border for cards */
-            border-radius: 12px; /* More rounded corners for card shape */
+            border: 2px solid #555;
+            border-radius: 12px;
             padding: 5px;
-            margin: 5px;
+            margin: 3px; /* Reduced margin */
             font-weight: bold;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
-            width: 75px; /* Slightly smaller width */
-            height: 110px; /* Slightly smaller height */
+            width: 70px; /* Slightly smaller card size */
+            height: 100px; /* Slightly smaller card size */
             box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.3);
             text-shadow: none;
             position: relative;
             overflow: hidden;
-            font-family: 'Georgia', serif; /* A classic, slightly wider font */
-            background-image: linear-gradient(to bottom right, #fefefe, #e0e0e0); /* Subtle gradient for card face */
+            font-family: 'Georgia', serif;
+            background-image: linear-gradient(to bottom right, #fefefe, #e0e0e0);
         }
         .blackjack-card .card-rank {
-            font-size: 2em; /* Larger font for rank */
+            font-size: 1.8em; /* Adjusted font size */
             line-height: 1;
-            margin-top: 5px; /* Push rank down from top */
+            margin-top: 3px;
         }
         .blackjack-card .card-suit {
-            font-size: 1.8em; /* Larger font for suit */
+            font-size: 1.6em; /* Adjusted font size */
             line-height: 1;
-            margin-bottom: 5px; /* Push suit up from bottom */
+            margin-bottom: 3px;
         }
-        /* Specific suit colors */
         .blackjack-card .card-suit.red-suit {
-            color: #e74c3c; /* Red for hearts/diamonds */
+            color: #e74c3c;
         }
         .blackjack-card.hidden-card {
-            background-color: #3f0000; /* Even darker red for hidden card back */
+            background-color: #3f0000;
             color: #e74c3c;
             border: 2px solid #a93226;
-            font-size: 1.5em;
+            font-size: 1.4em; /* Adjusted font size */
             justify-content: center;
             align-items: center;
             text-align: center;
@@ -501,24 +518,23 @@
             display: flex;
         }
 
-
-        /* Buttons (Hit, Stand, New Game, Close) */
+        /* Buttons (Hit, Stand, New Game) */
         .blackjack-controls {
             grid-area: controls;
-            margin-top: 20px;
+            margin-top: 10px; /* Reduced margin */
             display: flex;
             justify-content: center;
-            gap: 15px; /* Space between buttons */
-            flex-wrap: wrap; /* Allow wrapping */
+            gap: 10px; /* Reduced gap between buttons */
+            flex-wrap: wrap;
         }
         .blackjack-controls button {
-            background-color: #444; /* Darker button base */
+            background-color: #444;
             color: white;
-            padding: 10px 20px; /* Slightly smaller padding */
-            border: 1px solid #666; /* Subtle border */
+            padding: 8px 18px; /* Slightly smaller padding */
+            border: 1px solid #666;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 1.1em; /* Slightly smaller font */
+            font-size: 1em; /* Reduced font size */
             font-weight: bold;
             transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.1s ease;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
@@ -554,15 +570,15 @@
         #blackjackNewGameBtn:hover { background-color: #2980b9; background-image: linear-gradient(to bottom right, #2980b9, #206da0); }
 
         /* Bottom Controls (Transfer) */
-        .bottom-controls { /* Contains only transfer button now */
+        .bottom-controls {
             grid-area: bottom-controls;
             display: flex;
             justify-content: center;
-            margin-top: 10px;
+            margin-top: 5px; /* Reduced margin */
             gap: 15px;
             flex-wrap: wrap;
         }
-        .bottom-controls button { /* Apply similar dark theme as other controls */
+        .bottom-controls button {
             background-color: #444;
             color: white;
             padding: 10px 20px;
@@ -602,13 +618,13 @@
         const modalContent = document.createElement('div');
         modalContent.className = 'blackjack-modal-content';
 
-        // Stats Header (replaces the old title)
+        // Stats Header
         const statsHeaderDiv = document.createElement('div');
         statsHeaderDiv.className = 'blackjack-stats-header';
         statsHeaderDiv.innerHTML = `
-            <span class="value" id="currentCreditsDisplay">0.00</span><span class="label"> cr.</span>
+            <span class="label">cr.:</span> <span class="value" id="currentCreditsDisplay">0.00</span>
             <span class="label">Wins:</span> <span class="value" id="winsDisplay">0</span>
-            <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span><br>
+            <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span>
             <span class="label">Earned:</span> <span class="value earned" id="totalEarnedDisplay">0.00</span>
             <span class="label">Lost:</span> <span class="value lost" id="totalLostDisplay">0.00</span>
         `;
@@ -636,7 +652,7 @@
         dealerImage.alt = `${DEALER_NAME} dealer image`;
         dealerImage.onerror = function() {
             this.onerror = null;
-            this.src = `https://placehold.co/100x100/333/ecf0f1?text=${DEALER_NAME.substring(0,1)}`;
+            this.src = `https://placehold.co/100x100/333/ecf0f1`; // Plain placeholder, no text
             console.error(`Failed to load dealer image from ${DEALER_IMAGE_URL}. Displaying placeholder.`);
         };
         dealerAvatarContainer.appendChild(dealerImage);
@@ -666,7 +682,7 @@
         playerImage.alt = 'Your avatar';
         playerImage.onerror = function() {
             this.onerror = null;
-            this.src = `https://placehold.co/100x100/333/ecf0f1?text=YOU`;
+            this.src = `https://placehold.co/100x100/333/ecf0f1`; // Plain placeholder, no text
             console.error(`Failed to load player image placeholder. Displaying default placeholder.`);
         };
         playerAvatarContainer.appendChild(playerImage);
@@ -687,15 +703,15 @@
         // Betting Area (will be placed in its own grid area)
         const bettingArea = document.createElement('div');
         bettingArea.className = 'blackjack-betting-area';
-        // Removed bet input and place bet button from HTML creation, will be handled by prompt
-        bettingArea.style.display = 'none'; // Hide initially, as prompt handles bet
+        bettingArea.style.display = 'none'; // Hide as prompt handles bet
+
 
         // Game Message
         gameMessageDiv = document.createElement('div');
         gameMessageDiv.className = 'blackjack-message playing';
         gameMessageDiv.textContent = 'Place your bet to start!';
 
-        // Controls (Hit, Stand, New Game) - These will be higher up now
+        // Controls (Hit, Stand, New Game)
         const controlsDiv = document.createElement('div');
         controlsDiv.className = 'blackjack-controls';
 
@@ -709,16 +725,16 @@
 
         newGameBtn = document.createElement('button');
         newGameBtn.id = 'blackjackNewGameBtn';
-        newGameBtn.textContent = 'New Hand'; // Changed text to "New Hand"
-        newGameBtn.style.display = 'none'; // Hidden initially
+        newGameBtn.textContent = 'New Hand';
+        newGameBtn.style.display = 'none';
 
         controlsDiv.appendChild(hitBtn);
         controlsDiv.appendChild(standBtn);
         controlsDiv.appendChild(newGameBtn);
 
-        // Additional Control Buttons (Transfer Credits) - Close button moved to X
+        // Additional Control Buttons (Transfer Credits)
         const bottomControlsDiv = document.createElement('div');
-        bottomControlsDiv.className = 'bottom-controls'; // Changed class name
+        bottomControlsDiv.className = 'bottom-controls';
 
         transferCreditsBtn = document.createElement('button');
         transferCreditsBtn.id = 'transferCreditsBtn';
@@ -729,21 +745,21 @@
         // Rags 2 Riches Title in the middle of the table
         rags2RichesTitle = document.createElement('div');
         rags2RichesTitle.id = 'rags2RichesTitle';
-        rags2RichesTitle.innerHTML = '<span>Rags</span><span>2</span><span>Riches</span>';
+        rags2RichesTitle.innerHTML = '<span>RAGS</span><span>2</span><span>RICHES</span>';
 
 
         // Append all elements to modal content based on grid areas
         modalContent.appendChild(statsHeaderDiv);
-        modalContent.appendChild(closeButtonX); // Add the 'X' button
+        modalContent.appendChild(closeButtonX);
         modalContent.appendChild(dealerSection);
         modalContent.appendChild(dealerNameScoreDiv);
         modalContent.appendChild(playerSection);
         modalContent.appendChild(playerNameScoreDiv);
-        modalContent.appendChild(bettingArea); // This will be hidden and not used for direct input
+        modalContent.appendChild(bettingArea);
         modalContent.appendChild(gameMessageDiv);
-        modalContent.appendChild(controlsDiv); // Action buttons
-        modalContent.appendChild(bottomControlsDiv); // Transfer button
-        modalContent.appendChild(rags2RichesTitle); // Add the Rags 2 Riches title
+        modalContent.appendChild(controlsDiv);
+        modalContent.appendChild(bottomControlsDiv);
+        modalContent.appendChild(rags2RichesTitle);
 
 
         // Append modal content to backdrop
@@ -759,8 +775,8 @@
         transferCreditsBtn.addEventListener('click', redirectToCreditTransfer);
 
         // Initial UI state
-        setGameControlState(false); // Game controls disabled until bet is placed
-        updateStatsDisplay(); // Update initial win/loss/earned/lost display
+        setGameControlState(false);
+        updateStatsDisplay();
     }
 
     // --- Game Flow Functions ---
@@ -792,87 +808,74 @@
         playerHand = [];
         dealerHand = [];
         gameOver = false;
-        currentBet = 0; // Reset bet for the new hand
+        currentBet = 0;
 
-        currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2); // Refresh displayed credits
+        currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
 
         gameMessageDiv.textContent = 'Place your bet for the next hand!';
         gameMessageDiv.className = 'blackjack-message playing';
 
-        dealerHandDiv.innerHTML = ''; // Clear hands
+        dealerHandDiv.innerHTML = '';
         dealerScoreDiv.textContent = '';
         playerHandDiv.innerHTML = '';
         playerScoreDiv.textContent = '';
 
-        hitBtn.style.display = ''; // Show Hit button
-        standBtn.style.display = ''; // Show Stand button
-        newGameBtn.style.display = 'none'; // Hide New Game button
-        setGameControlState(false); // Disable game controls until new bet
+        hitBtn.style.display = '';
+        standBtn.style.display = '';
+        newGameBtn.style.display = 'none';
+        setGameControlState(false);
 
-        // Prompt for bet
+        // Prompt for bet (moved after modal is open)
         await promptForBet();
     }
 
     // Prompts the user for a bet amount with a timeout
     async function promptForBet() {
         gameMessageDiv.textContent = `Enter your bet (You have ${currentUsersCredits.toFixed(2)} credits). You have ${BET_TIMEOUT_MS / 1000} seconds.`;
-        gameMessageDiv.classList.remove('error'); // Clear error state
+        gameMessageDiv.classList.remove('error');
 
         return new Promise(resolve => {
             const timerStart = Date.now();
             let betAmount = 0;
 
-            const checkBet = () => {
-                const timeElapsed = Date.now() - timerStart;
-                const timeLeft = Math.max(0, BET_TIMEOUT_MS - timeElapsed);
-
-                if (timeLeft <= 0) {
-                    gameMessageDiv.textContent = "Time's up! Bet defaulted to 0.";
-                    gameMessageDiv.classList.add('error');
-                    betAmount = 0;
-                    resolve(betAmount);
-                    return;
-                }
-
-                let input = prompt(`Enter your bet (You have ${currentUsersCredits.toFixed(2)} credits). ${Math.ceil(timeLeft / 1000)} seconds remaining.`);
-
-                if (input === null) { // User cancelled prompt
-                    gameMessageDiv.textContent = "Bet cancelled. Bet defaulted to 0.";
-                    gameMessageDiv.classList.add('error');
-                    betAmount = 0;
-                    resolve(betAmount);
-                    return;
-                }
-
-                let parsedBet = parseFloat(input);
-
-                if (isNaN(parsedBet) || parsedBet <= 0) {
-                    gameMessageDiv.textContent = 'Invalid bet. Must be a positive number. Try again.';
-                    gameMessageDiv.classList.add('error');
-                    betTimeoutId = setTimeout(checkBet, 100); // Give a tiny delay before re-prompt
-                } else if (parsedBet > currentUsersCredits) {
-                    gameMessageDiv.textContent = `Not enough credits. You have ${currentUsersCredits.toFixed(2)} cr. Try again.`;
-                    gameMessageDiv.classList.add('error');
-                    betTimeoutId = setTimeout(checkBet, 100);
-                } else {
-                    betAmount = parsedBet;
-                    resolve(betAmount);
-                }
-            };
-
+            // Immediately set a timeout for the prompt
             betTimeoutId = setTimeout(() => {
-                // If the promise hasn't been resolved yet, the timeout has expired
+                // If the promise hasn't been resolved by user input, the timeout has expired
                 if (!gameOver) { // Ensure game hasn't ended already
                     gameMessageDiv.textContent = "Time's up! Bet defaulted to 0.";
                     gameMessageDiv.classList.add('error');
                     resolve(0);
                 }
-            }, BET_TIMEOUT_MS + 50); // Add a small buffer to ensure prompt finishes
+            }, BET_TIMEOUT_MS); // Timeout for the prompt itself
 
-            // Start the first prompt
-            checkBet();
+            let input = prompt(`Enter your bet (You have ${currentUsersCredits.toFixed(2)} credits).`);
+
+            // Clear the timeout as soon as the user provides input or cancels
+            clearTimeout(betTimeoutId);
+
+            if (input === null) { // User cancelled prompt
+                gameMessageDiv.textContent = "Bet cancelled. Bet defaulted to 0.";
+                gameMessageDiv.classList.add('error');
+                betAmount = 0;
+                resolve(betAmount);
+                return;
+            }
+
+            let parsedBet = parseFloat(input);
+
+            if (isNaN(parsedBet) || parsedBet <= 0) {
+                gameMessageDiv.textContent = 'Invalid bet. Must be a positive number. Starting with 0 bet.';
+                gameMessageDiv.classList.add('error');
+                betAmount = 0;
+            } else if (parsedBet > currentUsersCredits) {
+                gameMessageDiv.textContent = `Not enough credits. You have ${currentUsersCredits.toFixed(2)} cr. Starting with 0 bet.`;
+                gameMessageDiv.classList.add('error');
+                betAmount = 0;
+            } else {
+                betAmount = parsedBet;
+            }
+            resolve(betAmount);
         }).then(bet => {
-            clearTimeout(betTimeoutId); // Clear the timeout if bet is placed manually
             if (bet > 0) {
                 currentBet = bet;
                 currentUsersCredits -= currentBet; // Deduct bet from displayed credits
@@ -1032,7 +1035,7 @@
         if (creditChange !== 0) {
             const transferAmount = Math.abs(creditChange);
             const transferRecipient = creditChange > 0 ? actualUsersUsername : DEALER_NAME;
-            const transferReason = creditChange > 0 ? `Blackjack Win: +${transferAmount.toFixed(2)}` : `Blackjack Loss: -${transferAmount.toFixed(2)}`; // Use transferAmount directly for reason
+            const transferReason = creditChange > 0 ? `Blackjack Win: +${transferAmount.toFixed(2)}` : `Blackjack Loss: -${transferAmount.toFixed(2)}`;
 
             GM_setValue(STORAGE_KEY_PENDING_CREDIT, true);
             GM_setValue(STORAGE_KEY_RECIPIENT, transferRecipient);
@@ -1060,7 +1063,8 @@
         currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2); // Update initial display
 
         gameModal.classList.add('show');
-        await resetGame(); // Reset game state for a new round (waiting for bet)
+        // Now prompt for bet after the modal is shown
+        await resetGame(); // This now includes the promptForBet call
     }
 
     // Hides the game modal
