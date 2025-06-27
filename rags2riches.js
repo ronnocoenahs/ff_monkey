@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.10 // Increased version for sending PM to Mugiwara via profile parsing
-// @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
+// @version      2.16 // Increased version for removing Top 10s and player avatar parsing
+// @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers. Now with a start screen!
 // @author       Gemini
 // @match        https://www.funfile.org/*
 // @grant        GM_addStyle
@@ -19,7 +19,7 @@
     // --- Game Configuration ---
     const DEALER_NAME = "Mugiwara";
     const DEALER_IMAGE_URL = "https://ptpimg.me/95xrpn.jpg"; // Mugiwara's image URL
-    const PLAYER_AVATAR_PLACEHOLDER_URL = "https://ptpimg.me/02z355"; // Updated player avatar URL
+    const PLAYER_AVATAR_PLACEHOLDER_URL = "https://placehold.co/100x100/333/ecf0f1"; // Generic placeholder if user avatar not found
     const MUGIWARA_PROFILE_ID = 377548; // Mugiwara's specific user ID for profile page
     // These multipliers are for display and calculation within the game.
     // Actual transfers are done manually via mycredits.php.
@@ -52,6 +52,7 @@
     let currentBet = 0;
     let currentUsersCredits = 0; // Displayed credits within the game
     let actualUsersUsername = ''; // To store the current logged-in user's username
+    let actualUserAvatarUrl = PLAYER_AVATAR_PLACEHOLDER_URL; // To store the current logged-in user's avatar URL
     let wins = 0; // Track wins (now persistent)
     let losses = 0; // Track losses (now persistent)
     let totalEarned = 0; // Track total credits earned in game (now persistent)
@@ -61,9 +62,15 @@
     // --- UI Elements (will be populated once the DOM is ready) ---
     let gameModal, dealerHandDiv, dealerScoreDiv, playerHandDiv, playerScoreDiv, gameMessageDiv, hitBtn, standBtn, newGameBtn;
     let currentCreditsDisplay, winsDisplayElement, lossesDisplayElement, totalEarnedDisplay, totalLostDisplay, transferCreditsBtn, reportTotalsBtn; // Added reportTotalsBtn
-    let closeButtonX; // The new 'X' close button
     let rags2RichesTitle; // For the text in the middle of the table
     let betInput, placeBetBtn, bettingAreaDiv; // New UI elements for betting
+    let playerNameDisplayElement; // Reference to the player's name display element
+    let playerAvatarImageElement; // Reference to the player's avatar image element
+
+    // New modal elements
+    let startScreenModal;
+    let dealerStatsModal;
+    // Removed topWinnersModal and topLosersModal
 
     // --- Card Deck Logic ---
     const suits = ['♥', '♦', '♣', '♠']; // Heart, Diamond, Club, Spade emojis
@@ -126,17 +133,50 @@
         return `<div class="card-rank">${card.rank}</div><div class="card-suit ${ (card.suit === '♥' || card.suit === '♦') ? 'red-suit' : ''}">${card.suit}</div>`;
     }
 
-    // --- DOM Parsing for User Credits ---
-    function readUserCreditsFromPage() {
+    // --- DOM Parsing for User Credits, Name, and Avatar ---
+    function readUserCreditsAndNameFromPage() {
         // Look for the specific div that contains the user's information on the main page
         const userInfoDiv = document.querySelector('div[style*="float: left; margin: 5px 0 0 14px;"]');
 
         if (userInfoDiv) {
-            // Get the username (bold link)
+            // Get the username (bold link to profile)
             const usernameLink = userInfoDiv.querySelector('a[style*="font-weight: bold;"]');
             if (usernameLink) {
                 actualUsersUsername = usernameLink.textContent.trim();
+
+                // Explicitly parse the profile URL for the current player's ID for demonstration
+                const profileHref = usernameLink.href;
+                const urlParams = new URLSearchParams(profileHref.split('?')[1]);
+                const playerId = urlParams.get('id');
+                if (playerId) {
+                    console.log(`FunFile Blackjack: Identified current player's name from profile link: "${actualUsersUsername}" (ID: ${playerId})`);
+                } else {
+                    console.warn(`FunFile Blackjack: Could not extract player ID from profile link: ${profileHref}`);
+                }
+
+                // Update the player's name display in the game if the element exists
+                if (playerNameDisplayElement) {
+                    playerNameDisplayElement.textContent = actualUsersUsername;
+                }
             }
+
+            // Attempt to find the user's avatar. This assumes an <img> tag exists within or near userInfoDiv
+            // A more robust selector might be needed based on FunFile's specific HTML structure.
+            const userAvatarImg = userInfoDiv.querySelector('img[src*="user_avatars/"]'); // Example: look for img with 'user_avatars/' in src
+            if (userAvatarImg && userAvatarImg.src) {
+                actualUserAvatarUrl = userAvatarImg.src;
+                console.log(`FunFile Blackjack: Identified current player's avatar: "${actualUserAvatarUrl}"`);
+                if (playerAvatarImageElement) {
+                    playerAvatarImageElement.src = actualUserAvatarUrl;
+                }
+            } else {
+                 console.warn("FunFile Blackjack: Could not find player's avatar image within the user info div. Using placeholder.");
+                 actualUserAvatarUrl = PLAYER_AVATAR_PLACEHOLDER_URL; // Fallback to placeholder
+                 if (playerAvatarImageElement) {
+                    playerAvatarImageElement.src = actualUserAvatarUrl;
+                 }
+            }
+
 
             // Within this div, find the 'a' tag that contains 'cr.' (for credits)
             const creditLink = userInfoDiv.querySelector('a[href*="mycredits.php"]');
@@ -204,7 +244,7 @@
         }
 
 
-        /* Modal Backdrop */
+        /* Generic Modal Backdrop and Content (reused for game, start screen, stats, leaderboards) */
         .blackjack-modal-backdrop {
             position: fixed;
             top: 0;
@@ -225,7 +265,6 @@
             visibility: visible;
         }
 
-        /* Modal Content */
         .blackjack-modal-content {
             background-color: #2c3e50; /* Fallback for if image fails, or to blend with */
             padding: 20px; /* Reduced padding slightly for more space */
@@ -243,55 +282,80 @@
             font-family: 'Arial', sans-serif;
             border: 3px solid #f39c12; /* Orange border */
 
-            /* Poker table theme */
+            /* Poker table theme for game modal */
             background-image: linear-gradient(to bottom, rgba(0,0,0,0.6), rgba(0,0,0,0.8)), url('https://placehold.co/900x500/228B22/228B22'); /* Removed text, matched background color */
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
             background-blend-mode: overlay; /* Blend mode can affect overall look */
-            
-            /* Positioning context for absolute elements */
-            position: relative; /* CRITICAL for absolute positioning of children */
-            display: grid; /* Use grid for main layout */
+        }
+        /* Only apply grid to the main game modal */
+        #blackjackGameModal .blackjack-modal-content {
+            display: grid; /* Use grid for main game layout */
             grid-template-areas:
-                "stats-header stats-header stats-header" /* stats spans all columns for centering */
-                ". betting-area ." /* Betting area now right under stats, centered */
-                "dealer-avatar . player-avatar"
-                "dealer-name-score . player-name-score"
-                "dealer-hand game-message player-hand" /* Hands on sides, message in center, allowing vertical stretch for cards */
+                "stats-header stats-header stats-header"
+                ". betting-area ."
+                "dealer-info . player-info"
+                "dealer-hand game-message player-hand"
                 ". controls ."
                 ". bottom-controls .";
-            grid-template-columns: 1fr 2fr 1fr; /* Flexible columns, center is wider */
+            grid-template-columns: 1fr 2fr 1fr;
             grid-template-rows: auto /* stats-header */
                                 auto /* betting-area */
-                                auto /* dealer/player avatar */
-                                auto /* dealer/player name-score */
+                                auto /* dealer/player info block (name, avatar, score) */
                                 2fr  /* hands and message (flexible height) */
                                 auto /* controls */
                                 auto; /* bottom-controls */
-            gap: 5px 0; /* Reduced vertical gap */
-            align-items: center; /* Vertically center content in rows by default */
-            justify-content: center; /* Horizontally center grid items */
-        }
-        /* Make close button independent of grid row */
-        .blackjack-modal-content #blackjackCloseBtnX {
-            grid-area: unset; /* Remove from grid flow */
-            position: absolute;
-            top: 10px;
-            right: 10px;
+            gap: 5px 0;
+            align-items: center;
+            justify-content: center;
         }
 
-
-        .blackjack-modal-backdrop.show {
-            opacity: 1;
-            visibility: visible;
+        /* Generic modal styling for other screens (start, stats) */
+        .blackjack-start-screen-modal .blackjack-modal-content,
+        .blackjack-dealer-stats-modal .blackjack-modal-content {
+            display: flex; /* Use flexbox for simple stacking of content */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            max-width: 600px; /* Slightly narrower for these informational modals */
+            height: auto; /* Adjust height based on content */
+            min-height: 300px; /* Minimum height */
+            padding: 30px;
         }
+        .blackjack-start-screen-modal .blackjack-modal-content {
+            background-image: linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(0,0,0,0.9)), url('https://placehold.co/600x400/1A362D/1A362D'); /* Darker green theme */
+            background-size: cover;
+        }
+        .blackjack-dealer-stats-modal .blackjack-modal-content {
+            background-image: linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(0,0,0,0.9)), url('https://placehold.co/600x400/2C3E50/2C3E50'); /* Dark blue/grey theme */
+            background-size: cover;
+        }
+
 
         .blackjack-modal-backdrop.show .blackjack-modal-content {
             transform: scale(1);
         }
 
-        /* Stats Header Styling */
+        /* Close Button (X) - applies to all modals now */
+        .blackjack-modal-backdrop .blackjack-close-btn-x {
+            background: none;
+            border: none;
+            color: #ecf0f1;
+            font-size: 2em;
+            cursor: pointer;
+            padding: 5px 10px;
+            position: absolute; /* Absolute positioning */
+            top: 10px; /* Top right corner */
+            right: 10px;
+            z-index: 10; /* Ensure it's above other content */
+            transition: color 0.2s ease;
+        }
+        .blackjack-modal-backdrop .blackjack-close-btn-x:hover {
+            color: #e74c3c; /* Red on hover */
+        }
+
+        /* Stats Header Styling (for game modal) */
         .blackjack-stats-header {
             grid-area: stats-header; /* Updated grid area name */
             font-size: 1.3em;
@@ -328,50 +392,25 @@
             color: #e74c3c;
         }
 
-        /* Close Button (X) */
-        #blackjackCloseBtnX {
-            background: none;
-            border: none;
-            color: #ecf0f1;
-            font-size: 2em;
-            cursor: pointer;
-            padding: 5px 10px;
-            position: absolute; /* Absolute positioning */
-            top: 10px; /* Top right corner */
-            right: 10px;
-            z-index: 10; /* Ensure it's above other content */
-            transition: color 0.2s ease;
-        }
-        #blackjackCloseBtnX:hover {
-            color: #e74c3c; /* Red on hover */
-        }
 
-        /* Avatar Containers */
-        .dealer-section {
-            grid-area: dealer-avatar;
+        /* Combined Info Sections (Name, Avatar, Score) - for game modal */
+        .dealer-info, .player-info {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column; /* Stack name, avatar, score vertically */
+            align-items: center; /* Center items horizontally */
+            justify-content: flex-start; /* Align to top of grid area */
+            padding-top: 10px; /* Some padding from the top */
+            position: relative; /* For name display positioning */
         }
+        .dealer-info { grid-area: dealer-info; }
+        .player-info { grid-area: player-info; }
 
-        .player-section {
-            grid-area: player-avatar;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .dealer-name-score {
-            grid-area: dealer-name-score;
-            text-align: center;
-            margin-top: -15px; /* Pull up closer to avatar */
-        }
-        .player-name-score {
-            grid-area: player-name-score;
-            text-align: center;
-            margin-top: -15px; /* Pull up closer to avatar */
+        .name-display {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #f1c40f; /* Yellowish for names */
+            margin-bottom: 5px; /* Space between name and avatar */
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         }
 
         .avatar-container {
@@ -380,7 +419,7 @@
             border-radius: 50%;
             border: 3px solid #f39c12;
             overflow: hidden;
-            margin-bottom: 5px; /* Reduced space */
+            margin-bottom: 5px; /* Reduced space between avatar and score */
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
             display: flex;
             justify-content: center;
@@ -394,12 +433,18 @@
             display: block;
         }
 
-        .blackjack-modal-content h3 {
+        .score-display {
             margin-top: 0;
             margin-bottom: 5px;
             color: #f1c40f;
-            font-size: 1.1em; /* Reduced hand title font size */
+            font-size: 1.1em;
+            font-weight: bold; /* Make the "Hand:" text bold */
         }
+        .score-display .score-value {
+            color: #ecf0f1; /* White for the actual score value */
+            font-weight: normal; /* Keep the score value normal weight */
+        }
+
 
         /* Betting Area (now visible input) */
         .blackjack-betting-area {
@@ -488,7 +533,7 @@
         .blackjack-message.playing { color: #f1c40f; }
         .blackjack-message.error { color: #e74c3c; }
 
-        /* Rags 2 Riches Title */
+        /* Rags 2 Riches Title (for game modal) */
         #rags2RichesTitle {
             position: absolute; /* Keep absolute to layer over grid cells */
             top: 50%;
@@ -672,201 +717,245 @@
 
         #reportTotalsBtn { background-color: #8e44ad; background-image: linear-gradient(to bottom right, #8e44ad, #9b59b6); } /* Purple color for new button */
         #reportTotalsBtn:hover { background-color: #9b59b6; background-image: linear-gradient(to bottom right, #9b59b6, #a977c0); }
+
+
+        /* Start Screen Specific Styles */
+        .start-screen-title {
+            font-family: 'Luckiest Guy', cursive, 'Impact', 'Arial Black', sans-serif;
+            font-size: 3.5em; /* Smaller than in-game title */
+            color: #f1c40f;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.7);
+            margin-bottom: 30px;
+            line-height: 0.9;
+        }
+        .start-screen-title span {
+            display: block;
+        }
+
+        .start-screen-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 80%; /* Control width of buttons */
+            max-width: 300px;
+        }
+        .start-screen-buttons button {
+            background-color: #34495e; /* Darker blue-grey */
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.2em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background-image: linear-gradient(to bottom right, #4a6580, #2c3e50);
+        }
+        .start-screen-buttons button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+            background-image: linear-gradient(to bottom right, #5c7b99, #3f586f);
+        }
+        .start-screen-buttons button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Specific colors for start screen buttons */
+        #startNewGameBtn { background-color: #2ecc71; background-image: linear-gradient(to bottom right, #2ecc71, #27ae60); }
+        #startNewGameBtn:hover { background-color: #27ae60; background-image: linear-gradient(to bottom right, #27ae60, #229954); }
+
+        #viewDealerStatsBtn { background-color: #f39c12; background-image: linear-gradient(to bottom right, #f39c12, #e67e22); }
+        #viewDealerStatsBtn:hover { background-color: #e67e22; background-image: linear-gradient(to bottom right, #e67e22, #d35400); }
+
+        /* Leaderboard content has been removed, but if you re-add it, these styles will apply. */
+        .leaderboard-content h2 {
+            color: #f1c40f;
+            margin-bottom: 20px;
+            font-size: 2em;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+        }
+        .leaderboard-content p {
+            font-size: 1.3em;
+            margin-bottom: 10px;
+            color: #ecf0f1;
+        }
+        .leaderboard-content .note {
+            font-size: 0.9em;
+            color: #bbb;
+            margin-top: 20px;
+        }
     `);
 
-    // Function to create the Blackjack game modal and its elements
-    function createGameModal() {
-        // Create modal backdrop
-        gameModal = document.createElement('div');
-        gameModal.className = 'blackjack-modal-backdrop';
-        gameModal.id = 'blackjackGameModal';
+    // Function to create a generic modal backdrop and content structure
+    function createModalBase(id, contentHTML, modalClass, closeCallback) {
+        const modal = document.createElement('div');
+        modal.id = id;
+        modal.className = `blackjack-modal-backdrop ${modalClass}`;
 
-        // Create modal content area
         const modalContent = document.createElement('div');
         modalContent.className = 'blackjack-modal-content';
+        modalContent.innerHTML = contentHTML;
 
-        // Stats Header
-        const statsHeaderDiv = document.createElement('div');
-        statsHeaderDiv.className = 'blackjack-stats-header';
-        statsHeaderDiv.innerHTML = `
-            <span class="label">cr.:</span> <span class="value" id="currentCreditsDisplay">0.00</span>
-            <span class="label">Wins:</span> <span class="value" id="winsDisplay">0</span>
-            <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span>
-            <span class="label">Earned:</span> <span class="value earned" id="totalEarnedDisplay">0.00</span>
-            <span class="label">Lost:</span> <span class="value lost" id="totalLostDisplay">0.00</span>
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'blackjack-close-btn-x';
+        closeBtn.textContent = 'X';
+        closeBtn.addEventListener('click', closeCallback);
+        modalContent.prepend(closeBtn); // Add close button at the top
+
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    // Function to show a modal
+    function showModal(modalElement) {
+        if (modalElement) {
+            modalElement.classList.add('show');
+            modalElement.style.visibility = 'visible'; // Ensure visibility is set
+        }
+    }
+
+    // Function to hide a modal
+    function hideModal(modalElement) {
+        if (modalElement) {
+            modalElement.classList.remove('show');
+            setTimeout(() => {
+                modalElement.style.visibility = 'hidden';
+            }, 400); // Match transition duration
+        }
+    }
+
+
+    // --- Create Blackjack Game Modal ---
+    function createGameModal() {
+        if (gameModal) return; // Prevent recreation
+
+        const gameContentHTML = `
+            <div class="blackjack-stats-header">
+                <span class="label">cr.:</span> <span class="value" id="currentCreditsDisplay">0.00</span>
+                <span class="label">Wins:</span> <span class="value" id="winsDisplay">0</span>
+                <span class="label">Losses:</span> <span class="value" id="lossesDisplay">0</span>
+                <span class="label">Earned:</span> <span class="value earned" id="totalEarnedDisplay">0.00</span>
+                <span class="label">Lost:</span> <span class="value lost" id="totalLostDisplay">0.00</span>
+            </div>
+            <div class="blackjack-betting-area">
+                <input type="number" id="betInput" min="1" placeholder="Enter Bet" value="10">
+                <button id="placeBetBtn">Place Bet</button>
+            </div>
+            <div class="dealer-info">
+                <div class="name-display">${DEALER_NAME}</div>
+                <div class="avatar-container"><img src="${DEALER_IMAGE_URL}" alt="${DEALER_NAME} dealer image" onerror="this.onerror=null;this.src='https://placehold.co/100x100/333/ecf0f1';"></div>
+                <div class="score-display">Hand: <span class="score-value" id="dealerScore"></span></div>
+            </div>
+            <div class="player-info">
+                <div class="name-display" id="playerNameDisplayElement">Your Name</div>
+                <div class="avatar-container"><img src="${actualUserAvatarUrl}" alt="Your avatar" id="playerAvatarImageElement" onerror="this.onerror=null;this.src='${PLAYER_AVATAR_PLACEHOLDER_URL}';"></div>
+                <div class="score-display">Hand: <span class="score-value" id="playerScore"></span></div>
+            </div>
+            <div id="dealerHandDiv" class="blackjack-hand"></div>
+            <div id="playerHandDiv" class="blackjack-hand"></div>
+            <div id="gameMessageDiv" class="blackjack-message playing">Place your bet to start!</div>
+            <div class="blackjack-controls">
+                <button id="blackjackHitBtn">Hit</button>
+                <button id="blackjackStandBtn">Stand</button>
+                <button id="blackjackNewGameBtn" style="display: none;">New Hand</button>
+            </div>
+            <div class="bottom-controls">
+                <button id="transferCreditsBtn">Transfer Credits</button>
+                <button id="reportTotalsBtn">Report Totals to Mugiwara</button>
+            </div>
+            <div id="rags2RichesTitle"><span>RAGS</span><span>2</span><span>RICHES</span></div>
         `;
-        currentCreditsDisplay = statsHeaderDiv.querySelector('#currentCreditsDisplay');
-        winsDisplayElement = statsHeaderDiv.querySelector('#winsDisplay');
-        lossesDisplayElement = statsHeaderDiv.querySelector('#lossesDisplay');
-        totalEarnedDisplay = statsHeaderDiv.querySelector('#totalEarnedDisplay');
-        totalLostDisplay = statsHeaderDiv.querySelector('#totalLostDisplay');
 
-        // Close Button (X)
-        closeButtonX = document.createElement('button');
-        closeButtonX.id = 'blackjackCloseBtnX';
-        closeButtonX.textContent = 'X';
-        closeButtonX.addEventListener('click', hideGameModal);
+        gameModal = createModalBase('blackjackGameModal', gameContentHTML, '', () => hideModal(gameModal));
 
-
-        // Betting Area (now with input field) - moved to appear directly after stats header
-        bettingAreaDiv = document.createElement('div');
-        bettingAreaDiv.className = 'blackjack-betting-area';
-        bettingAreaDiv.style.display = 'flex'; // Default to flex, will be hidden later
-
-        betInput = document.createElement('input');
-        betInput.type = 'number';
-        betInput.id = 'betInput';
-        betInput.min = '1';
-        betInput.placeholder = 'Enter Bet';
-        betInput.value = '10'; // Default bet value
-
-        placeBetBtn = document.createElement('button');
-        placeBetBtn.id = 'placeBetBtn';
-        placeBetBtn.textContent = 'Place Bet';
-        placeBetBtn.addEventListener('click', handlePlaceBet); // Event listener for the new button
-
-        bettingAreaDiv.appendChild(betInput);
-        bettingAreaDiv.appendChild(placeBetBtn);
+        // Assign UI elements after creation
+        currentCreditsDisplay = gameModal.querySelector('#currentCreditsDisplay');
+        winsDisplayElement = gameModal.querySelector('#winsDisplay');
+        lossesDisplayElement = gameModal.querySelector('#lossesDisplay');
+        totalEarnedDisplay = gameModal.querySelector('#totalEarnedDisplay');
+        totalLostDisplay = gameModal.querySelector('#totalLostDisplay');
+        betInput = gameModal.querySelector('#betInput');
+        placeBetBtn = gameModal.querySelector('#placeBetBtn');
+        dealerHandDiv = gameModal.querySelector('#dealerHandDiv');
+        dealerScoreDiv = gameModal.querySelector('#dealerScore');
+        playerHandDiv = gameModal.querySelector('#playerHandDiv');
+        playerScoreDiv = gameModal.querySelector('#playerScore');
+        gameMessageDiv = gameModal.querySelector('#gameMessageDiv');
+        hitBtn = gameModal.querySelector('#blackjackHitBtn');
+        standBtn = gameModal.querySelector('#blackjackStandBtn');
+        newGameBtn = gameModal.querySelector('#blackjackNewGameBtn');
+        transferCreditsBtn = gameModal.querySelector('#transferCreditsBtn');
+        reportTotalsBtn = gameModal.querySelector('#reportTotalsBtn');
+        bettingAreaDiv = gameModal.querySelector('.blackjack-betting-area');
+        playerNameDisplayElement = gameModal.querySelector('#playerNameDisplayElement'); // Assign player name element
+        playerAvatarImageElement = gameModal.querySelector('#playerAvatarImageElement'); // Assign player avatar element
 
 
-        // Dealer's Section (Avatar, Hand)
-        const dealerSection = document.createElement('div');
-        dealerSection.className = 'dealer-section';
-
-        const dealerAvatarContainer = document.createElement('div');
-        dealerAvatarContainer.className = 'avatar-container';
-        const dealerImage = document.createElement('img');
-        dealerImage.src = DEALER_IMAGE_URL;
-        dealerImage.alt = `${DEALER_NAME} dealer image`;
-        dealerImage.onerror = function() {
-            this.onerror = null;
-            this.src = `https://placehold.co/100x100/333/ecf0f1`; // Plain placeholder, no text
-            console.error(`Failed to load dealer image from ${DEALER_IMAGE_URL}. Displaying placeholder.`);
-        };
-        dealerAvatarContainer.appendChild(dealerImage);
-        dealerSection.appendChild(dealerAvatarContainer);
-
-        dealerHandDiv = document.createElement('div');
-        dealerHandDiv.id = 'dealerHandDiv'; // Assign ID for grid area
-        dealerHandDiv.className = 'blackjack-hand';
-        dealerSection.appendChild(dealerHandDiv);
-
-
-        // Dealer Name and Score
-        const dealerNameScoreDiv = document.createElement('div');
-        dealerNameScoreDiv.className = 'dealer-name-score';
-        dealerNameScoreDiv.innerHTML = `<h3>${DEALER_NAME}'s Hand: <span id="dealerScore"></span></h3>`;
-        dealerScoreDiv = dealerNameScoreDiv.querySelector('#dealerScore');
-
-
-        // Player's Section (Avatar, Hand)
-        const playerSection = document.createElement('div');
-        playerSection.className = 'player-section';
-
-        const playerAvatarContainer = document.createElement('div');
-        playerAvatarContainer.className = 'avatar-container';
-        const playerImage = document.createElement('img');
-        playerImage.src = PLAYER_AVATAR_PLACEHOLDER_URL; // Using placeholder for player
-        playerImage.alt = 'Your avatar';
-        playerImage.onerror = function() {
-            this.onerror = null;
-            this.src = `https://placehold.co/100x100/333/ecf0f1`; // Plain placeholder, no text
-            console.error(`Failed to load player image placeholder. Displaying default placeholder.`);
-        };
-        playerAvatarContainer.appendChild(playerImage);
-        playerSection.appendChild(playerAvatarContainer);
-
-        playerHandDiv = document.createElement('div');
-        playerHandDiv.id = 'playerHandDiv'; // Assign ID for grid area
-        playerHandDiv.className = 'blackjack-hand';
-        playerSection.appendChild(playerHandDiv);
-
-        // Player Name and Score
-        const playerNameScoreDiv = document.createElement('div');
-        playerNameScoreDiv.className = 'player-name-score';
-        playerNameScoreDiv.innerHTML = `<h3>Your Hand: <span id="playerScore"></span></h3>`;
-        playerScoreDiv = playerNameScoreDiv.querySelector('#playerScore');
-
-
-        // Game Message
-        gameMessageDiv = document.createElement('div');
-        gameMessageDiv.className = 'blackjack-message playing';
-        gameMessageDiv.textContent = 'Place your bet to start!';
-
-        // Controls (Hit, Stand, New Game)
-        const controlsDiv = document.createElement('div');
-        controlsDiv.className = 'blackjack-controls';
-
-        hitBtn = document.createElement('button');
-        hitBtn.id = 'blackjackHitBtn';
-        hitBtn.textContent = 'Hit';
-
-        standBtn = document.createElement('button');
-        standBtn.id = 'blackjackStandBtn';
-        standBtn.textContent = 'Stand';
-
-        newGameBtn = document.createElement('button');
-        newGameBtn.id = 'blackjackNewGameBtn';
-        newGameBtn.textContent = 'New Hand';
-        newGameBtn.style.display = 'none';
-
-        controlsDiv.appendChild(hitBtn);
-        controlsDiv.appendChild(standBtn);
-        controlsDiv.appendChild(newGameBtn);
-
-        // Additional Control Buttons (Transfer Credits, Report Totals)
-        const bottomControlsDiv = document.createElement('div');
-        bottomControlsDiv.className = 'bottom-controls';
-
-        transferCreditsBtn = document.createElement('button');
-        transferCreditsBtn.id = 'transferCreditsBtn';
-        transferCreditsBtn.textContent = 'Transfer Credits';
-        bottomControlsDiv.appendChild(transferCreditsBtn); // Add Transfer Credits button
-
-        reportTotalsBtn = document.createElement('button'); // New button
-        reportTotalsBtn.id = 'reportTotalsBtn';
-        reportTotalsBtn.textContent = 'Report Totals to Mugiwara';
-        bottomControlsDiv.appendChild(reportTotalsBtn); // Add Report Totals button
-
-
-        // Rags 2 Riches Title in the middle of the table
-        rags2RichesTitle = document.createElement('div');
-        rags2RichesTitle.id = 'rags2RichesTitle';
-        rags2RichesTitle.innerHTML = '<span>RAGS</span><span>2</span><span>RICHES</span>';
-
-
-        // Append all elements to modal content based on grid areas
-        modalContent.appendChild(statsHeaderDiv);
-        modalContent.appendChild(closeButtonX);
-        modalContent.appendChild(bettingAreaDiv); // Betting area directly after stats
-        modalContent.appendChild(dealerSection);
-        modalContent.appendChild(dealerNameScoreDiv);
-        modalContent.appendChild(playerSection);
-        modalContent.appendChild(playerNameScoreDiv);
-        modalContent.appendChild(gameMessageDiv);
-        modalContent.appendChild(controlsDiv);
-        modalContent.appendChild(bottomControlsDiv);
-        modalContent.appendChild(rags2RichesTitle);
-
-
-        // Append modal content to backdrop
-        gameModal.appendChild(modalContent);
-
-        // Append backdrop to body
-        document.body.appendChild(gameModal);
-
-        // Event listeners for buttons
+        // Event listeners for game buttons
         hitBtn.addEventListener('click', playerHit);
         standBtn.addEventListener('click', playerStand);
         newGameBtn.addEventListener('click', resetGame);
+        placeBetBtn.addEventListener('click', handlePlaceBet);
         transferCreditsBtn.addEventListener('click', redirectToCreditTransfer);
-        reportTotalsBtn.addEventListener('click', sendPayoutReport); // Event listener for new button
+        reportTotalsBtn.addEventListener('click', sendPayoutReport);
 
-        // Initial UI state
         setGameControlState(false); // Game controls disabled initially
         updateStatsDisplay(); // Update initial win/loss/earned/lost display
-        bettingAreaDiv.style.display = 'flex'; // Ensure betting area is visible for initial bet
     }
+
+    // --- Create Start Screen Modal ---
+    function createStartScreenModal() {
+        if (startScreenModal) return;
+
+        const startScreenContentHTML = `
+            <div class="start-screen-title"><span>RAGS</span><span>2</span><span>RICHES</span></div>
+            <div class="start-screen-buttons">
+                <button id="startNewGameBtn">Start New Game</button>
+                <button id="viewDealerStatsBtn">View Dealer Stats</button>
+                <!-- Removed Top 10 Winners/Losers buttons -->
+            </div>
+        `;
+        startScreenModal = createModalBase('blackjackStartScreenModal', startScreenContentHTML, 'blackjack-start-screen-modal', () => hideModal(startScreenModal));
+
+        // Event listeners for start screen buttons
+        startScreenModal.querySelector('#startNewGameBtn').addEventListener('click', () => {
+            hideModal(startScreenModal);
+            showGameModal();
+        });
+        startScreenModal.querySelector('#viewDealerStatsBtn').addEventListener('click', () => {
+            hideModal(startScreenModal);
+            showDealerStatsModal();
+        });
+        // Removed event listeners for Top 10 Winners/Losers
+    }
+
+    // --- Create Dealer Stats Modal ---
+    function createDealerStatsModal() {
+        if (dealerStatsModal) return;
+
+        const dealerStatsContentHTML = `
+            <h2>Your Stats Against ${DEALER_NAME}</h2>
+            <div class="dealer-stats-content">
+                <p>Total Games Won: <span class="stat-value">${GM_getValue(STORAGE_KEY_WINS, 0)}</span></p>
+                <p>Total Games Lost: <span class="stat-value">${GM_getValue(STORAGE_KEY_LOSSES, 0)}</span></p>
+                <p>Total Credits Earned: <span class="stat-value earned">${GM_getValue(STORAGE_KEY_TOTAL_EARNED, 0).toFixed(2)} cr.</span></p>
+                <p>Total Credits Lost: <span class="stat-value lost">${GM_getValue(STORAGE_KEY_TOTAL_LOST, 0).toFixed(2)} cr.</span></p>
+            </div>
+            <p class="note"><em>Note: These are your personal stats tracked client-side and do not reflect ${DEALER_NAME}'s overall statistics across all players.</em></p>
+        `;
+        dealerStatsModal = createModalBase('blackjackDealerStatsModal', dealerStatsContentHTML, 'blackjack-dealer-stats-modal', () => {
+            hideModal(dealerStatsModal);
+            showModal(startScreenModal); // Return to start screen
+        });
+    }
+
+    // Removed createTopWinnersModal and createTopLosersModal functions
+
 
     // --- Game Flow Functions ---
 
@@ -1128,7 +1217,7 @@
         }
     }
 
-    // --- Modal Visibility Functions ---
+    // --- Modal Visibility Functions (for game, start screen, and new stats) ---
 
     // Shows the game modal and reads user credits
     async function showGameModal() {
@@ -1140,25 +1229,44 @@
             link.rel = 'stylesheet';
             document.head.appendChild(link);
         }
-        readUserCreditsFromPage(); // Read credits from the actual page
+        readUserCreditsAndNameFromPage(); // Call updated function to read credits, name, and avatar
         loadPlayerStats(); // Load player stats from storage
         currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2); // Update initial display
 
-        gameModal.classList.add('show');
+        showModal(gameModal);
         // Now that the modal is shown, set up for betting
         resetGame(); // This will show the bet input and button
     }
 
-    // Hides the game modal
-    function hideGameModal() {
-        if (gameModal) {
-            gameModal.classList.remove('show');
-            // Allow time for transition before hiding completely
-            setTimeout(() => {
-                gameModal.style.visibility = 'hidden';
-            }, 400);
+    function showStartScreenModal() {
+        if (!startScreenModal) {
+            createStartScreenModal();
+            // Load Google Font for Rags 2 Riches title on start screen
+            const link = document.createElement('link');
+            link.href = 'https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap';
+            link.rel = 'stylesheet';
+            document.head.appendChild(link);
         }
+        readUserCreditsAndNameFromPage(); // Ensure player name and avatar are loaded for potential display
+        showModal(startScreenModal);
     }
+
+    function showDealerStatsModal() {
+        if (!dealerStatsModal) {
+            createDealerStatsModal();
+        }
+        // Update stats just before showing the modal
+        dealerStatsModal.querySelector('.dealer-stats-content').innerHTML = `
+            <p>Total Games Won: <span class="stat-value">${GM_getValue(STORAGE_KEY_WINS, 0)}</span></p>
+            <p>Total Games Lost: <span class="stat-value">${GM_getValue(STORAGE_KEY_LOSSES, 0)}</span></p>
+            <p>Total Credits Earned: <span class="stat-value earned">${GM_getValue(STORAGE_KEY_TOTAL_EARNED, 0).toFixed(2)} cr.</span></p>
+            <p>Total Credits Lost: <span class="stat-value lost">${GM_getValue(STORAGE_KEY_TOTAL_LOST, 0).toFixed(2)} cr.</span></p>
+        `;
+        showModal(dealerStatsModal);
+    }
+
+    // Removed showTopWinnersModal and showTopLosersModal functions
+
 
     // Handles redirecting to mycredits.php for manual transfer
     function redirectToCreditTransfer() {
@@ -1190,6 +1298,22 @@
             url: mugiwaraProfileUrl,
             onload: function(response) {
                 const doc = new DOMParser().parseFromString(response.responseText, "text/html");
+
+                // Attempt to identify Mugiwara's name from his profile page
+                // The structure for username on FunFile profile pages might look like:
+                // <td class="header">Username</td><td><a href="userdetails.php?id=...">Mugiwara</a></td>
+                const usernameElement = doc.querySelector('td.header:first-child + td > a[href*="userdetails.php?id="]');
+                if (usernameElement) {
+                    const fetchedMugiwaraName = usernameElement.textContent.trim();
+                    console.log(`FunFile Blackjack: Identified Mugiwara's name from profile: "${fetchedMugiwaraName}"`);
+                    if (fetchedMugiwaraName !== DEALER_NAME) {
+                        console.warn(`FunFile Blackjack: Discrepancy detected! Hardcoded DEALER_NAME "${DEALER_NAME}" does not match fetched name "${fetchedMugiwaraName}".`);
+                    }
+                } else {
+                    console.warn("FunFile Blackjack: Could not find Mugiwara's username on his profile page from the specified selector.");
+                }
+
+
                 // Find the 'Send private message' link. This is a common pattern.
                 const pmLink = doc.querySelector('a[href*="messages.php?action=compose"]');
 
@@ -1233,11 +1357,20 @@
         const ragsToRichesBtn = document.createElement('button');
         ragsToRichesBtn.id = 'ragsToRichesBtn';
         ragsToRichesBtn.textContent = 'Rags2Riches'; // Button text
-        ragsToRichesBtn.addEventListener('click', showGameModal);
+        ragsToRichesBtn.addEventListener('click', showStartScreenModal); // Open start screen
         buttonContainer.appendChild(ragsToRichesBtn);
 
-        // Prepend the new container to the body to ensure it's at the top level
-        document.body.prepend(buttonContainer);
+        // Find the head_banner which typically contains the logo/site header
+        const headBanner = document.querySelector('.head_banner');
+
+        if (headBanner && headBanner.parentNode) {
+            // Insert the button container directly after the head_banner within its parent
+            headBanner.parentNode.insertBefore(buttonContainer, headBanner.nextSibling);
+        } else {
+            // Fallback: if .head_banner not found, prepend to body (original behavior)
+            document.body.prepend(buttonContainer);
+            console.warn("FunFile Blackjack: Could not find .head_banner. Placing Rags2Riches button at body start.");
+        }
     }
 
     // --- Handle Page Load Actions (Credit Pre-filling and Message Pre-filling) ---
