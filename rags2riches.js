@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      2.2 // Increased version for centered stats and no underlining
+// @version      2.4 // Increased version for in-game bet input field
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -23,13 +23,21 @@
     // Actual transfers are done manually via mycredits.php.
     const BLACKJACK_PAYOUT_MULTIPLIER = 1.5; // Blackjack typically pays 3:2 (1.5x bet)
     const REGULAR_WIN_MULTIPLIER = 1;       // Regular win pays 1:1 (1x bet)
-    const BET_TIMEOUT_MS = 10000; // 10 seconds for bet input
+    // BET_TIMEOUT_MS is no longer directly used for prompt timeout, but can be
+    // repurposed for an idle timer if desired. For now, it's illustrative.
+    const BET_TIMEOUT_MS = 10000;
 
-    // --- Greasemonkey Storage Keys for Pending Transfers ---
+    // --- Greasemonkey Storage Keys ---
     const STORAGE_KEY_PENDING_CREDIT = 'ff_blackjack_pending_credit';
     const STORAGE_KEY_RECIPIENT = 'ff_blackjack_recipient';
     const STORAGE_KEY_AMOUNT = 'ff_blackjack_amount';
     const STORAGE_KEY_REASON = 'ff_blackjack_reason';
+    // New storage keys for persistent player stats
+    const STORAGE_KEY_WINS = 'ff_blackjack_wins';
+    const STORAGE_KEY_LOSSES = 'ff_blackjack_losses';
+    const STORAGE_KEY_TOTAL_EARNED = 'ff_blackjack_total_earned';
+    const STORAGE_KEY_TOTAL_LOST = 'ff_blackjack_total_lost';
+
 
     // --- Blackjack Game Variables ---
     let deck = [];
@@ -39,17 +47,19 @@
     let currentBet = 0;
     let currentUsersCredits = 0; // Displayed credits within the game
     let actualUsersUsername = ''; // To store the current logged-in user's username
-    let wins = 0; // Track wins
-    let losses = 0; // Track losses
-    let totalEarned = 0; // Track total credits earned in game
-    let totalLost = 0;   // Track total credits lost in game
-    let betTimeoutId = null; // To store the timeout for bet prompt
+    let wins = 0; // Track wins (now persistent)
+    let losses = 0; // Track losses (now persistent)
+    let totalEarned = 0; // Track total credits earned in game (now persistent)
+    let totalLost = 0;   // Track total credits lost in game (now persistent)
+    // betTimeoutId is no longer used for prompts, but kept as a placeholder if future timer logic is added.
+    let betTimeoutId = null;
 
     // --- UI Elements (will be populated once the DOM is ready) ---
     let gameModal, dealerHandDiv, dealerScoreDiv, playerHandDiv, playerScoreDiv, gameMessageDiv, hitBtn, standBtn, newGameBtn;
     let currentCreditsDisplay, winsDisplayElement, lossesDisplayElement, totalEarnedDisplay, totalLostDisplay, transferCreditsBtn;
     let closeButtonX; // The new 'X' close button
     let rags2RichesTitle; // For the text in the middle of the table
+    let betInput, placeBetBtn, bettingAreaDiv; // New UI elements for betting
 
     // --- Card Deck Logic ---
     const suits = ['♥', '♦', '♣', '♠']; // Heart, Diamond, Club, Spade emojis
@@ -236,9 +246,10 @@
                 "dealer-name-score . player-name-score"
                 "dealer-hand game-message player-hand" /* Hands on sides, message in center, allowing vertical stretch for cards */
                 ". controls ."
+                ". betting-area ." /* Added grid area for betting controls */
                 ". bottom-controls .";
             grid-template-columns: 1fr 2fr 1fr; /* Flexible columns, center is wider */
-            grid-template-rows: auto 1fr auto 2fr auto auto; /* Adjusted rows for better spacing */
+            grid-template-rows: auto 1fr auto 2fr auto auto auto; /* Adjusted rows for betting area */
             gap: 5px 0; /* Reduced vertical gap */
             align-items: center; /* Vertically center content in rows by default */
             justify-content: center; /* Horizontally center grid items */
@@ -261,7 +272,7 @@
             color: #f39c12;
             margin-bottom: 5px; /* Reduced margin */
             padding: 5px 10px; /* Reduced padding */
-            /* Removed border-bottom for underlining */
+            border-bottom: none; /* Removed border-bottom for underlining */
             text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
             width: 100%; /* Occupy full width of grid area */
             display: flex; /* Use flexbox for internal alignment of stats */
@@ -364,31 +375,33 @@
             font-size: 1.1em; /* Reduced hand title font size */
         }
 
-        /* Betting Area (now hidden and managed by prompt) */
+        /* Betting Area (now visible input) */
         .blackjack-betting-area {
             grid-area: betting-area; /* Assigned grid area */
-            display: flex;
+            display: flex; /* Flexbox for centering input and button */
             justify-content: center;
             align-items: center;
-            margin-top: 15px;
-            margin-bottom: 25px;
+            margin-top: 5px; /* Reduced margin */
+            margin-bottom: 15px; /* Reduced margin */
             flex-wrap: wrap;
         }
-        .blackjack-betting-area label {
-            margin-right: 10px;
-            font-size: 1.1em;
-            color: #ecf0f1;
-        }
         .blackjack-betting-area input[type="number"] {
-            width: 100px;
-            padding: 8px 12px;
-            border-radius: 5px;
-            border: 1px solid #7f8c8d;
+            width: 120px; /* Slightly wider input field */
+            padding: 10px 15px; /* More padding */
+            border-radius: 8px; /* More rounded */
+            border: 2px solid #555; /* Darker border */
             background-color: #ecf0f1;
             color: #333;
-            font-size: 1em;
+            font-size: 1.1em; /* Larger font */
             text-align: center;
             -moz-appearance: textfield;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.1); /* Subtle inner shadow */
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .blackjack-betting-area input[type="number"]:focus {
+            outline: none;
+            border-color: #3498db; /* Blue focus border */
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.1), 0 0 8px rgba(52,152,219,0.5); /* Glow on focus */
         }
         .blackjack-betting-area input[type="number"]::-webkit-outer-spin-button,
         .blackjack-betting-area input[type="number"]::-webkit-inner-spin-button {
@@ -396,25 +409,36 @@
             margin: 0;
         }
         .blackjack-betting-area button {
-            background-color: #3498db;
+            background-color: #3498db; /* Blue for place bet */
             color: white;
-            padding: 8px 15px;
+            padding: 10px 20px; /* Consistent padding with other buttons */
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 1em;
+            font-size: 1.1em;
             font-weight: bold;
             margin-left: 15px;
-            transition: background-color 0.2s ease, transform 0.1s ease;
+            transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.1s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            text-transform: uppercase;
+            background-image: linear-gradient(to bottom right, #3498db, #2980b9);
         }
         .blackjack-betting-area button:hover {
             background-color: #2980b9;
-            transform: translateY(-1px);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+            background-image: linear-gradient(to bottom right, #2980b9, #206da0);
+        }
+        .blackjack-betting-area button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
         .blackjack-betting-area button:disabled {
             background-color: #7f8c8d;
             cursor: not-allowed;
+            box-shadow: none;
             transform: none;
+            background-image: none;
         }
 
 
@@ -700,10 +724,25 @@
         playerScoreDiv = playerNameScoreDiv.querySelector('#playerScore');
 
 
-        // Betting Area (will be placed in its own grid area)
-        const bettingArea = document.createElement('div');
-        bettingArea.className = 'blackjack-betting-area';
-        bettingArea.style.display = 'none'; // Hide as prompt handles bet
+        // Betting Area (now with input field)
+        bettingAreaDiv = document.createElement('div');
+        bettingAreaDiv.className = 'blackjack-betting-area';
+        bettingAreaDiv.style.display = 'flex'; // Default to flex, will be hidden later
+
+        betInput = document.createElement('input');
+        betInput.type = 'number';
+        betInput.id = 'betInput';
+        betInput.min = '1';
+        betInput.placeholder = 'Enter Bet';
+        betInput.value = '10'; // Default bet value
+
+        placeBetBtn = document.createElement('button');
+        placeBetBtn.id = 'placeBetBtn';
+        placeBetBtn.textContent = 'Place Bet';
+        placeBetBtn.addEventListener('click', handlePlaceBet); // Event listener for the new button
+
+        bettingAreaDiv.appendChild(betInput);
+        bettingAreaDiv.appendChild(placeBetBtn);
 
 
         // Game Message
@@ -755,7 +794,7 @@
         modalContent.appendChild(dealerNameScoreDiv);
         modalContent.appendChild(playerSection);
         modalContent.appendChild(playerNameScoreDiv);
-        modalContent.appendChild(bettingArea);
+        modalContent.appendChild(bettingAreaDiv); // Now betting area is directly added
         modalContent.appendChild(gameMessageDiv);
         modalContent.appendChild(controlsDiv);
         modalContent.appendChild(bottomControlsDiv);
@@ -775,8 +814,9 @@
         transferCreditsBtn.addEventListener('click', redirectToCreditTransfer);
 
         // Initial UI state
-        setGameControlState(false);
-        updateStatsDisplay();
+        setGameControlState(false); // Game controls disabled initially
+        updateStatsDisplay(); // Update initial win/loss/earned/lost display
+        bettingAreaDiv.style.display = 'flex'; // Ensure betting area is visible for initial bet
     }
 
     // --- Game Flow Functions ---
@@ -790,15 +830,59 @@
         if (totalLostDisplay) totalLostDisplay.textContent = totalLost.toFixed(2);
     }
 
+    // Loads player stats from Tampermonkey storage
+    function loadPlayerStats() {
+        wins = GM_getValue(STORAGE_KEY_WINS, 0);
+        losses = GM_getValue(STORAGE_KEY_LOSSES, 0);
+        totalEarned = GM_getValue(STORAGE_KEY_TOTAL_EARNED, 0);
+        totalLost = GM_getValue(STORAGE_KEY_TOTAL_LOST, 0);
+    }
+
+    // Saves player stats to Tampermonkey storage
+    function savePlayerStats() {
+        GM_setValue(STORAGE_KEY_WINS, wins);
+        GM_setValue(STORAGE_KEY_LOSSES, losses);
+        GM_setValue(STORAGE_KEY_TOTAL_EARNED, totalEarned);
+        GM_setValue(STORAGE_KEY_TOTAL_LOST, totalLost);
+    }
+
     // Sets the state of game control buttons (hit, stand)
     function setGameControlState(enabled) {
         hitBtn.disabled = !enabled;
         standBtn.disabled = !enabled;
     }
 
+    // Handles the "Place Bet" button click
+    function handlePlaceBet() {
+        const inputBet = parseFloat(betInput.value);
+
+        if (isNaN(inputBet) || inputBet <= 0) {
+            gameMessageDiv.textContent = 'Invalid bet. Please enter a positive number.';
+            gameMessageDiv.classList.add('error');
+            return;
+        }
+
+        if (inputBet > currentUsersCredits) {
+            gameMessageDiv.textContent = `Not enough credits. You have ${currentUsersCredits.toFixed(2)} cr.`;
+            gameMessageDiv.classList.add('error');
+            return;
+        }
+
+        currentBet = inputBet;
+        currentUsersCredits -= currentBet; // Deduct bet from displayed credits
+        currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
+
+        bettingAreaDiv.style.display = 'none'; // Hide bet input after placing bet
+        gameMessageDiv.textContent = `Bet of ${currentBet.toFixed(2)} placed. Dealing cards...`;
+        gameMessageDiv.className = 'blackjack-message playing';
+
+        startGameRound();
+    }
+
+
     // Resets the game state and UI for a new hand (not resetting overall stats)
-    async function resetGame() {
-        // Clear any existing bet timeout
+    function resetGame() {
+        // Clear any existing bet timeout (if repurposed for idle timer)
         if (betTimeoutId) {
             clearTimeout(betTimeoutId);
             betTimeoutId = null;
@@ -808,92 +892,30 @@
         playerHand = [];
         dealerHand = [];
         gameOver = false;
-        currentBet = 0;
+        currentBet = 0; // Reset bet for the new hand
 
-        currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
+        currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2); // Refresh displayed credits
 
         gameMessageDiv.textContent = 'Place your bet for the next hand!';
         gameMessageDiv.className = 'blackjack-message playing';
 
-        dealerHandDiv.innerHTML = '';
+        dealerHandDiv.innerHTML = ''; // Clear hands
         dealerScoreDiv.textContent = '';
         playerHandDiv.innerHTML = '';
         playerScoreDiv.textContent = '';
 
-        hitBtn.style.display = '';
-        standBtn.style.display = '';
-        newGameBtn.style.display = 'none';
-        setGameControlState(false);
+        hitBtn.style.display = ''; // Show Hit button
+        standBtn.style.display = ''; // Show Stand button
+        newGameBtn.style.display = 'none'; // Hide New Game button
+        setGameControlState(false); // Disable game controls until new bet
 
-        // Prompt for bet (moved after modal is open)
-        await promptForBet();
+        betInput.value = '10'; // Reset bet input value
+        bettingAreaDiv.style.display = 'flex'; // Show betting area for new bet
     }
-
-    // Prompts the user for a bet amount with a timeout
-    async function promptForBet() {
-        gameMessageDiv.textContent = `Enter your bet (You have ${currentUsersCredits.toFixed(2)} credits). You have ${BET_TIMEOUT_MS / 1000} seconds.`;
-        gameMessageDiv.classList.remove('error');
-
-        return new Promise(resolve => {
-            const timerStart = Date.now();
-            let betAmount = 0;
-
-            // Immediately set a timeout for the prompt
-            betTimeoutId = setTimeout(() => {
-                // If the promise hasn't been resolved by user input, the timeout has expired
-                if (!gameOver) { // Ensure game hasn't ended already
-                    gameMessageDiv.textContent = "Time's up! Bet defaulted to 0.";
-                    gameMessageDiv.classList.add('error');
-                    resolve(0);
-                }
-            }, BET_TIMEOUT_MS); // Timeout for the prompt itself
-
-            let input = prompt(`Enter your bet (You have ${currentUsersCredits.toFixed(2)} credits).`);
-
-            // Clear the timeout as soon as the user provides input or cancels
-            clearTimeout(betTimeoutId);
-
-            if (input === null) { // User cancelled prompt
-                gameMessageDiv.textContent = "Bet cancelled. Bet defaulted to 0.";
-                gameMessageDiv.classList.add('error');
-                betAmount = 0;
-                resolve(betAmount);
-                return;
-            }
-
-            let parsedBet = parseFloat(input);
-
-            if (isNaN(parsedBet) || parsedBet <= 0) {
-                gameMessageDiv.textContent = 'Invalid bet. Must be a positive number. Starting with 0 bet.';
-                gameMessageDiv.classList.add('error');
-                betAmount = 0;
-            } else if (parsedBet > currentUsersCredits) {
-                gameMessageDiv.textContent = `Not enough credits. You have ${currentUsersCredits.toFixed(2)} cr. Starting with 0 bet.`;
-                gameMessageDiv.classList.add('error');
-                betAmount = 0;
-            } else {
-                betAmount = parsedBet;
-            }
-            resolve(betAmount);
-        }).then(bet => {
-            if (bet > 0) {
-                currentBet = bet;
-                currentUsersCredits -= currentBet; // Deduct bet from displayed credits
-                currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
-                gameMessageDiv.textContent = `Bet of ${currentBet.toFixed(2)} placed. Dealing cards...`;
-                gameMessageDiv.className = 'blackjack-message playing';
-                startGameRound();
-            } else {
-                gameMessageDiv.textContent = "No valid bet placed. Start a new hand to try again.";
-                gameMessageDiv.className = 'blackjack-message error';
-                newGameBtn.style.display = ''; // Show New Hand button
-            }
-        });
-    }
-
 
     // Starts a new game round after a bet is placed
     function startGameRound() {
+        // This function is now called by handlePlaceBet after a valid bet is made
         createDeck();
         playerHand = [];
         dealerHand = [];
@@ -1025,11 +1047,13 @@
         gameOver = true;
         setGameControlState(false); // Disable game buttons
         newGameBtn.style.display = ''; // Show New Game button
+        bettingAreaDiv.style.display = 'none'; // Ensure betting area is hidden
 
         // Update displayed credits (add win or subtract loss from previous deduction)
         currentUsersCredits += creditChange;
         currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2);
         updateStatsDisplay(); // Update win/loss and total earned/lost display
+        savePlayerStats(); // Save updated stats to storage
 
         // Prepare for manual credit transfer via mycredits.php
         if (creditChange !== 0) {
@@ -1060,11 +1084,12 @@
             document.head.appendChild(link);
         }
         readUserCreditsFromPage(); // Read credits from the actual page
+        loadPlayerStats(); // Load player stats from storage
         currentCreditsDisplay.textContent = currentUsersCredits.toFixed(2); // Update initial display
 
         gameModal.classList.add('show');
-        // Now prompt for bet after the modal is shown
-        await resetGame(); // This now includes the promptForBet call
+        // Now that the modal is shown, set up for betting
+        resetGame(); // This will show the bet input and button
     }
 
     // Hides the game modal
