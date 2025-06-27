@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      0.9 // Increased version for endless hands and win/loss tracking
+// @version      1.0 // Increased version for button placement and styling
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -140,30 +140,30 @@
         #ragsToRichesBtn {
             background-color: #333; /* Dark background */
             color: #ecf0f1; /* Light text color */
-            padding: 15px 30px;
+            padding: 8px 30px; /* Slimmed down padding */
             border: none;
-            border-radius: 10px;
-            font-size: 1.8em;
+            border-radius: 8px; /* Slightly smaller border-radius */
+            font-size: 1.5em; /* Slightly smaller font for a slimmer look */
             font-weight: bold;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5); /* Stronger shadow */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); /* Adjusted shadow */
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin: 20px auto; /* Center button */
+            margin: 10px auto; /* Reduced margin, centered */
             display: block;
             background-image: linear-gradient(to bottom right, #444, #222); /* Subtle gradient */
-            border: 2px solid #555; /* Slightly lighter border */
+            border: 1px solid #555; /* Slightly lighter border */
         }
         #ragsToRichesBtn:hover {
             background-color: #555; /* Lighter on hover */
-            transform: translateY(-2px);
-            box-shadow: 0 7px 20px rgba(0, 0, 0, 0.6); /* More prominent shadow on hover */
+            transform: translateY(-1px); /* Less dramatic lift */
+            box-shadow: 0 5px 12px rgba(0, 0, 0, 0.5); /* Adjusted shadow on hover */
             background-image: linear-gradient(to bottom right, #555, #333);
         }
         #ragsToRichesBtn:active {
             transform: translateY(0);
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
 
         /* Modal Backdrop */
@@ -454,10 +454,11 @@
         // User Info (Credits and Win/Loss display)
         const userInfoDiv = document.createElement('div');
         userInfoDiv.className = 'blackjack-info';
-        userInfoDiv.innerHTML = `Your Credits: <span id="currentCreditsDisplay">0.00</span> cr. | Wins: <span id="winsLossesDisplay">0</span> | Losses: <span id="lossesDisplay">0</span>`;
+        // Updated innerHTML to include proper IDs for lossesDisplay
+        userInfoDiv.innerHTML = `Your Credits: <span id="currentCreditsDisplay">0.00</span> cr. | Wins: <span id="winsDisplay">0</span> | Losses: <span id="lossesDisplay">0</span>`;
         currentCreditsDisplay = userInfoDiv.querySelector('#currentCreditsDisplay');
-        winsLossesDisplay = userInfoDiv.querySelector('#winsLossesDisplay'); // Added for wins
-        const lossesDisplay = userInfoDiv.querySelector('#lossesDisplay'); // Added for losses
+        winsLossesDisplay = userInfoDiv.querySelector('#winsDisplay'); // Corrected ID to 'winsDisplay'
+        const lossesDisplay = userInfoDiv.querySelector('#lossesDisplay'); // Now correctly targets the losses span
 
         // Betting Area
         const bettingArea = document.createElement('div');
@@ -585,6 +586,7 @@
     // Updates the win/loss display
     function updateStatsDisplay() {
         winsLossesDisplay.textContent = wins;
+        // Ensure you are targeting the correct element for losses
         const lossesDisplayElement = document.querySelector('#lossesDisplay');
         if (lossesDisplayElement) {
             lossesDisplayElement.textContent = losses;
@@ -705,7 +707,7 @@
         updateUI();
 
         if (getHandValue(playerHand) > 21) {
-            gameMessageDiv.textContent = `Bust! You lose. Your bet of ${currentBet} credits will be sent to ${DEALER_NAME}.`;
+            gameMessageDiv.textContent = `Bust! You lose. Your bet of ${currentBet.toFixed(2)} credits will be sent to ${DEALER_NAME}.`;
             gameMessageDiv.classList.remove('playing');
             gameMessageDiv.classList.add('lose');
             endGame(-currentBet); // Pass negative bet for loss
@@ -835,6 +837,8 @@
         const pendingCredit = GM_getValue(STORAGE_KEY_PENDING_CREDIT, false);
         if (pendingCredit) {
             // Confirm with the user before navigating away
+            // IMPORTANT: Using confirm() as per previous interactions for a modal-like prompt.
+            // If you prefer a custom in-game message instead of a browser confirm, let me know.
             if (confirm("You have a pending credit transfer. Click OK to go to the MyCredits page to finalize it, or Cancel to stay here.")) {
                  window.location.href = 'https://www.funfile.org/mycredits.php';
             }
@@ -845,26 +849,21 @@
 
     // --- Initialize "Rags To Riches" button ---
     function initializeRagsToRichesButton() {
-        const mainWrapper = document.querySelector('.main_wrapper');
-        if (mainWrapper) {
+        const headBanner = document.querySelector('.head_banner'); // Select the banner div directly
+        if (headBanner) {
             const ragsToRichesBtn = document.createElement('button');
             ragsToRichesBtn.id = 'ragsToRichesBtn';
             ragsToRichesBtn.textContent = 'Rags2Riches'; // Button text
             ragsToRichesBtn.addEventListener('click', showGameModal);
 
-            // Insert the button prominently, e.g., before the main content area
-            const headBanner = document.querySelector('.head_banner');
-            if (headBanner) {
-                // Insert after the current user info div inside head_banner
-                const userInfoDiv = headBanner.querySelector('div[style*="float: left; margin: 5px 0 0 14px;"]');
-                if (userInfoDiv) {
-                    userInfoDiv.parentNode.insertBefore(ragsToRichesBtn, userInfoDiv.nextSibling);
-                } else {
-                    headBanner.appendChild(ragsToRichesBtn); // Fallback
-                }
-            } else {
-                document.body.prepend(ragsToRichesBtn); // Ultimate fallback
-            }
+            // Insert the button directly after the head_banner div
+            // The .head_banner div is a direct child of .maincontent or .main_wrapper
+            // so we need to insert it after the head_banner itself.
+            headBanner.parentNode.insertBefore(ragsToRichesBtn, headBanner.nextSibling);
+        } else {
+            // Fallback if .head_banner not found (less likely on FunFile)
+            document.body.prepend(ragsToRichesBtn);
+            console.warn("FunFile Blackjack: Could not find .head_banner. Placing Rags2Riches button at body start.");
         }
     }
 
@@ -887,6 +886,8 @@
                     user2userReasonField.value = reason;
                     user2userAmountField.value = amount.toFixed(2); // Ensure consistent decimal format
 
+                    // IMPORTANT: Using alert() here to notify the user about pre-filling.
+                    // This is for out-of-game context on the mycredits.php page.
                     alert(`Blackjack Credit Transfer Ready!\n\nThe credit exchange form has been pre-filled for:\nRecipient: ${recipient}\nAmount: ${amount.toFixed(2)} cr.\nReason: "${reason}"\n\nPlease review the details and click the "Send Credits" button to complete the transaction.`);
 
                     // Clear the storage flags so it doesn't pre-fill again on refresh
