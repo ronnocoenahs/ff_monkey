@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FunFile Rags To Riches Blackjack
 // @namespace    http://tampermonkey.net/
-// @version      1.9 // Increased version for stretched stats, prompt after game open, and confirmed no-text background
+// @version      2.2 // Increased version for centered stats and no underlining
 // @description  A client-side Blackjack game against 'Mugiwara' with betting, a poker table theme, win/loss tracking, and manual credit transfers.
 // @author       Gemini
 // @match        https://www.funfile.org/*
@@ -18,7 +18,7 @@
     // --- Game Configuration ---
     const DEALER_NAME = "Mugiwara";
     const DEALER_IMAGE_URL = "https://ptpimg.me/95xrpn.jpg"; // Mugiwara's image URL
-    const PLAYER_AVATAR_PLACEHOLDER_URL = "https://placehold.co/100x100/333/ecf0f1?text=YOU"; // Placeholder for player avatar
+    const PLAYER_AVATAR_PLACEHOLDER_URL = "https://ptpimg.me/02z355"; // Updated player avatar URL
     // These multipliers are for display and calculation within the game.
     // Actual transfers are done manually via mycredits.php.
     const BLACKJACK_PAYOUT_MULTIPLIER = 1.5; // Blackjack typically pays 3:2 (1.5x bet)
@@ -260,19 +260,19 @@
             font-weight: bold;
             color: #f39c12;
             margin-bottom: 5px; /* Reduced margin */
-            padding: 5px 10px; /* Reduced padding, adjusted to allow text to stretch */
-            border-bottom: 1px solid rgba(255,255,255,0.2);
+            padding: 5px 10px; /* Reduced padding */
+            /* Removed border-bottom for underlining */
             text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
             width: 100%; /* Occupy full width of grid area */
-            text-align: center; /* Center horizontally across stats area */
             display: flex; /* Use flexbox for internal alignment of stats */
-            justify-content: space-around; /* Distribute items evenly */
+            justify-content: center; /* Center content within the header */
             align-items: center;
             flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            gap: 0 15px; /* Space between stat items */
+            text-decoration: none; /* Explicitly remove any default underline */
         }
         .blackjack-stats-header span {
             color: #ecf0f1;
-            margin: 0 8px; /* Adjusted margin for horizontal spacing */
             font-weight: normal;
             display: inline-block; /* Ensure labels and values stay together but allow wrapping */
         }
